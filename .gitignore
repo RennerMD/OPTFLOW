@@ -69,3 +69,4 @@ htmlcov/
 -e 
 # ── Personal / local scripts ──────────────────────────────────
 sync.sh
+verify.sh
