@@ -1210,10 +1210,10 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
 // ── Pane ───────────────────────────────────────────────────────────────────────
 
 function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
-               fetchPortfolio,portLoading,recentTickers,setRecentTickers,compact}) {
+               fetchPortfolio,portLoading,recentTickers,setRecentTickers,compact,
+               view,setView,onOpenRight,role="left"}) {
 
   const [activeTabId,setActiveTabId] = useState(tabs[0]?.id||1);
-  const [view,setView]               = useState("portfolio");
   const [inputTicker,setInput]       = useState("");
   const [navStack,setNavStack]       = useState([]);  // [{view, tabId}]
   const [labLegs,setLabLegs]         = useState([]);   // seed legs for LabPanel
@@ -1401,7 +1401,10 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
               </button>
             </div>
             {portLoading&&<div className="loading-bar">LOADING…</div>}
-            <PortfolioPanel data={portData} onTickerOpen={tkr=>{openTicker(tkr);setView("chain");}}/>
+            <PortfolioPanel data={portData} onTickerOpen={tkr=>{
+              if(onOpenRight){ onOpenRight(tkr); }
+              else { openTicker(tkr); setView("chain"); }
+            }}/>
           </>
         )}
 
@@ -1442,10 +1445,15 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
             {activeTab.chainData
               ?<ChainTable chain={activeTab.chainData.chain} spot={activeTab.chainData.spot} activeType={activeTab.activeType}
                   onRowClick={row=>{
-                    pushNav(view,activeTabId);
-                    setLabLegs([{id:1,type:row.type,dir:"long",strike:row.strike,
-                      iv:row.iv||0.25,qty:1,dte:activeTab.chainData.dte||30,entry:row.mid||row.ask||0}]);
-                    setView("lab");
+                    const leg={id:1,type:row.type,dir:"long",strike:row.strike,
+                      iv:row.iv||0.25,qty:1,dte:activeTab.chainData.dte||30,entry:row.mid||row.ask||0};
+                    if(onOpenRight){
+                      onOpenRight(activeTab.ticker,[leg]);
+                    } else {
+                      pushNav(view,activeTabId);
+                      setLabLegs([leg]);
+                      setView("lab");
+                    }
                   }}/>
               :!activeTab.loading&&<div className="panel-empty">Enter a ticker and press +</div>}
             {activeTab.chainData&&<IVChart ticker={activeTab.ticker}/>}
@@ -1472,9 +1480,8 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
             </div>
             <StrategyPanel chainData={activeTab.chainData}
               onLabOpen={legs=>{
-                pushNav(view,activeTabId);
-                setLabLegs(legs);
-                setView("lab");
+                if(onOpenRight){ onOpenRight(activeTab.ticker, legs); }
+                else { pushNav(view,activeTabId); setLabLegs(legs); setView("lab"); }
               }}/>
           </>
         )}
@@ -1484,8 +1491,10 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
       <div style={{display:"flex",alignItems:"center",gap:8,padding:"4px 14px",
         borderTop:"1px solid var(--border)",fontSize:10,color:"var(--muted)",
         background:"var(--bg1)",flexShrink:0}}>
-        <span style={{color:["tradier","polygon"].includes(src)?"#00e5a0":"#48516b"}}>
-          {src==="tradier"?"● Tradier":src==="polygon"?"● Polygon":activeTab?.chainData?"○ yfinance":"—"}
+        <span
+          style={{color:src==="tradier"?"#00e5a0":src==="polygon"?"#4da8ff":activeTab?.chainData?"#555":"#2a2a2a"}}
+          title={src==="tradier"?"Real-time via Tradier":src==="polygon"?"Real-time via Polygon":"15-min delayed via yfinance"}>
+          {src==="tradier"?"● TRADIER":src==="polygon"?"● POLYGON":activeTab?.chainData?"○ YFINANCE (DELAYED)":"—"}
         </span>
         <span className="muted">·</span>
         <span style={{color:"#2a2a2a"}}>{activeTab?.chainData?.fetched_at||""}</span>
@@ -1496,6 +1505,200 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
 }
 
 // ── App ────────────────────────────────────────────────────────────────────────
+
+
+// ── AnalysisPane — right panel: strategy + lab combined ───────────────────────
+
+function AnalysisPane({tabs,setTabs,nextId,setNextId,liveSpots,
+                       labLegs,setLabLegs,view,setView,onClose}) {
+
+  const [activeTabId,setActiveTabId] = useState(tabs[0]?.id||1);
+  const wsRefs = useRef({});
+
+  const activeTab = tabs.find(t=>t.id===activeTabId)||tabs[0];
+  const chainData = activeTab?.chainData;
+
+  // Keep tabs in sync with liveSpots via WS
+  useEffect(()=>{
+    const ticker=activeTab?.ticker;
+    if(!ticker||wsRefs.current[ticker]) return;
+    const ws=new WebSocket(`${WS}/stream?tickers=${ticker}`);
+    ws.onmessage=e=>{const d=JSON.parse(e.data);
+      setTabs(prev=>prev.map(t=>t.ticker===ticker?{...t,livePrice:d[ticker]}:t));};
+    ws.onerror=()=>ws.close();
+    ws.onclose=()=>{delete wsRefs.current[ticker];};
+    wsRefs.current[ticker]=ws;
+  },[activeTab?.ticker]);
+
+  const updateTab = useCallback((id,patch)=>{
+    setTabs(p=>p.map(t=>t.id===id?{...t,...patch}:t));
+  },[setTabs]);
+
+  const fetchChain = useCallback(async(id,tkr,exp)=>{
+    updateTab(id,{loading:true,error:null});
+    try {
+      const r=await fetch(`${API}/chain/${tkr}${exp?`?expiry=${exp}`:""}`);
+      if(!r.ok) throw new Error((await r.json()).detail);
+      const d=await r.json();
+      updateTab(id,{chainData:d,expiries:d.expiries||[],loading:false,expiry:exp||d.expiry});
+    } catch(e){ updateTab(id,{error:e.message,loading:false}); }
+  },[updateTab]);
+
+  // Auto-fetch chain when tab switches without data
+  useEffect(()=>{
+    if(activeTab&&!activeTab.chainData&&!activeTab.loading){
+      fetchChain(activeTab.id, activeTab.ticker, null);
+    }
+  },[activeTab?.id]);
+
+  const livePrice = activeTab?.livePrice||chainData?.spot;
+  const src = chainData?.source;
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",flex:1,minWidth:0,
+      overflow:"hidden",borderLeft:"1px solid var(--border)"}}>
+
+      {/* Analysis pane header */}
+      <div style={{display:"flex",alignItems:"center",gap:8,padding:"3px 10px",
+        background:"var(--bg1)",borderBottom:"1px solid var(--border)",
+        flexShrink:0,flexWrap:"wrap",rowGap:3}}>
+
+        {/* Ticker tabs */}
+        <div style={{display:"flex",alignItems:"stretch",overflowX:"auto",flex:1,minWidth:0}}>
+          {tabs.map(tab=>(
+            <div key={tab.id}
+              className={clsx("ticker-tab",tab.id===activeTabId&&"active")}
+              style={{fontSize:10,padding:"0 8px",minHeight:26,cursor:"pointer"}}
+              onClick={()=>setActiveTabId(tab.id)}>
+              <span className="ticker-tab-name" style={{fontSize:10}}>{tab.ticker}</span>
+              {(tab.livePrice||tab.chainData?.spot)&&(
+                <span className="ticker-tab-price">${fmt(tab.livePrice||tab.chainData?.spot)}</span>
+              )}
+              {tab.loading&&<span style={{color:"var(--green)",fontSize:7,
+                animation:"blink 1s step-start infinite"}}>●</span>}
+            </div>
+          ))}
+        </div>
+
+        {/* View toggle */}
+        <div style={{display:"flex",gap:2,flexShrink:0}}>
+          {[["analysis","◆ ANALYSIS"],["chain","◫ CHAIN"]].map(([v,label])=>(
+            <button key={v} onClick={()=>setView(v)}
+              style={{background:view===v?"rgba(0,229,160,0.08)":"none",
+                border:`1px solid ${view===v?"rgba(0,229,160,0.4)":"transparent"}`,
+                color:view===v?"var(--green)":"#555",fontFamily:"var(--mono)",
+                fontSize:10,padding:"2px 8px",cursor:"pointer",
+                transition:"all 0.15s",letterSpacing:"0.06em"}}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Ticker info + close */}
+        {livePrice&&(
+          <span style={{fontSize:13,fontWeight:700,color:"#fff",flexShrink:0}}>
+            {activeTab?.ticker} ${fmt(livePrice)}
+          </span>
+        )}
+        {activeTab?.loading&&(
+          <span style={{color:"var(--green)",animation:"blink 1s step-start infinite",fontSize:9}}>●</span>
+        )}
+        <button onClick={onClose} title="Close analysis pane"
+          style={{background:"none",border:"1px solid var(--border2)",color:"#444",
+            fontFamily:"var(--mono)",fontSize:10,padding:"2px 6px",cursor:"pointer",
+            transition:"all 0.15s",flexShrink:0,marginLeft:4}}
+          onMouseEnter={e=>{e.currentTarget.style.color="var(--red)";e.currentTarget.style.borderColor="var(--red)";}}
+          onMouseLeave={e=>{e.currentTarget.style.color="#444";e.currentTarget.style.borderColor="var(--border2)";}}>
+          ✕
+        </button>
+      </div>
+
+      {/* Error bar */}
+      {activeTab?.error&&(
+        <div className="error-bar">⚠ {activeTab.error}</div>
+      )}
+
+      {/* Content */}
+      <div style={{flex:1,overflow:"auto",display:"flex",flexDirection:"column"}}>
+        {!chainData&&!activeTab?.loading&&(
+          <div className="panel-empty">Loading chain data…</div>
+        )}
+        {activeTab?.loading&&(
+          <div className="loading-bar">FETCHING CHAIN…</div>
+        )}
+
+        {chainData&&view==="analysis"&&(
+          <div style={{display:"flex",flexDirection:"column",flex:1}}>
+            {/* Compact strategy ranking */}
+            <div style={{padding:"8px 12px",borderBottom:"1px solid var(--border)",
+              background:"var(--bg1)",flexShrink:0}}>
+              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+                <span className="section-label">STRATEGY</span>
+                <span style={{fontSize:10,color:"#444"}}>
+                  IVR <b style={{color:chainData.iv_rank<30?"#00e5a0":chainData.iv_rank>70?"#ff4d6d":"#f5a623"}}>
+                    {fmt(chainData.iv_rank,1)}</b>
+                  &nbsp;·&nbsp;DTE <b style={{color:"#fff"}}>{chainData.dte}</b>
+                  &nbsp;·&nbsp;<b style={{color:"#4da8ff"}}>{fmtPct(chainData.atm_iv)}</b> ATM IV
+                </span>
+              </div>
+              <StrategyPanel chainData={chainData}
+                onLabOpen={legs=>{ setLabLegs(legs); setView("analysis"); }}/>
+            </div>
+
+            {/* Lab below strategy */}
+            <LabPanel chainData={chainData} seedLegs={labLegs}
+              onClose={null}/>
+          </div>
+        )}
+
+        {chainData&&view==="chain"&&(
+          <div style={{padding:"10px 12px",display:"flex",flexDirection:"column",gap:10}}>
+            <div className="controls-row">
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span className="section-label">EXPIRY</span>
+                <select className="expiry-select" value={activeTab.expiry||""}
+                  onChange={e=>{updateTab(activeTab.id,{expiry:e.target.value});
+                    fetchChain(activeTab.id,activeTab.ticker,e.target.value);}}>
+                  {activeTab.expiries.map(e=><option key={e} value={e}>{e}</option>)}
+                </select>
+                <span className="dte-badge">{chainData.dte}d</span>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:8}}>
+                <span className="section-label">IVR</span>
+                <IVGauge rank={chainData.iv_rank}/>
+              </div>
+              <div style={{display:"flex",gap:0,marginLeft:"auto"}}>
+                {["call","put"].map(t=>(
+                  <button key={t} className={clsx("type-btn",activeTab.activeType===t&&"active")}
+                    onClick={()=>updateTab(activeTab.id,{activeType:t})}>{t.toUpperCase()}S</button>
+                ))}
+              </div>
+            </div>
+            <ChainTable chain={chainData.chain} spot={chainData.spot}
+              activeType={activeTab.activeType}
+              onRowClick={row=>{
+                setLabLegs([{id:1,type:row.type,dir:"long",strike:row.strike,
+                  iv:row.iv||0.25,qty:1,dte:chainData.dte||30,entry:row.mid||row.ask||0}]);
+                setView("analysis");
+              }}/>
+          </div>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div style={{display:"flex",alignItems:"center",gap:8,padding:"4px 12px",
+        borderTop:"1px solid var(--border)",fontSize:10,color:"var(--muted)",
+        background:"var(--bg1)",flexShrink:0}}>
+        <span style={{color:src==="tradier"?"#00e5a0":src==="polygon"?"#4da8ff":chainData?"#555":"#2a2a2a"}}
+          title={src==="tradier"?"Real-time via Tradier":src==="polygon"?"Real-time via Polygon":"15-min delayed"}>
+          {src==="tradier"?"● TRADIER":src==="polygon"?"● POLYGON":chainData?"○ YFINANCE":"—"}
+        </span>
+        <span className="muted">·</span>
+        <span style={{color:"#2a2a2a"}}>{chainData?.fetched_at||""}</span>
+      </div>
+    </div>
+  );
+}
 
 export default function App() {
   // Sidebar open state — persisted
@@ -1526,14 +1729,19 @@ export default function App() {
   // Shared state
   const [nextId,setNextId]   = useState(3);
   const [liveSpots,setLiveSpots] = useState({});
+  // Left pane — portfolio/chain
   const [tabsA,setTabsA] = useState([{id:1,ticker:"SPY",chainData:null,expiry:null,expiries:[],loading:false,error:null,activeType:"call",livePrice:null}]);
-  const [tabsB,setTabsB] = useState([{id:2,ticker:"QQQ",chainData:null,expiry:null,expiries:[],loading:false,error:null,activeType:"call",livePrice:null}]);
+  // Right pane — analysis
+  const [tabsB,setTabsB] = useState([{id:2,ticker:"SPY",chainData:null,expiry:null,expiries:[],loading:false,error:null,activeType:"call",livePrice:null}]);
   const [portData,setPortData]       = useState(null);
   const [portLoading,setPortLoading] = useState(false);
   const [watchlist,setWatchlist]     = useState(()=>recall("optflow_watchlist",["SPY","QQQ","NVDA"]));
   const [settings,setSettings]       = useState(()=>recall("optflow_settings",{chainRows:20,autoRefresh:"on"}));
   const [recentTickers,setRecentTickers] = useState(()=>recall("optflow_recent",["SPY","QQQ"]));
   const [view,setView]               = useState("portfolio");
+  // Right pane state (independent)
+  const [viewB,setViewB]             = useState("analysis");
+  const [labLegsB,setLabLegsB]       = useState([]);
 
   const fetchPortfolio = useCallback(async()=>{
     setPortLoading(true);
@@ -1550,6 +1758,20 @@ export default function App() {
       if (r.ok){ const html=await r.text(); document.open();document.write(html);document.close(); }
     } catch {}
   },[]);
+
+  // Open right pane with a ticker (from portfolio row click or LAB button)
+  const openInRight = useCallback((ticker, labLegs=[]) => {
+    // Ensure ticker tab exists in tabsB
+    setTabsB(prev => {
+      if (prev.find(t=>t.ticker===ticker)) return prev;
+      const id = nextId; setNextId(n=>n+1);
+      return [...prev, {id,ticker,chainData:null,expiry:null,expiries:[],
+                        loading:false,error:null,activeType:"call",livePrice:null}];
+    });
+    setLabLegsB(labLegs);
+    setViewB(labLegs.length ? "analysis" : "chain");
+    setSplitMode(true);
+  }, [nextId]);
 
   // Split divider drag
   const onSplitDrag = e=>{
@@ -1585,7 +1807,7 @@ export default function App() {
           <span style={{color:"var(--green)",fontSize:15}}>◈</span>
           <span style={{fontSize:11,fontWeight:700,letterSpacing:"0.15em",color:"#fff"}}>OPTFLOW</span>
           <div style={{marginLeft:"auto",display:"flex",gap:6}}>
-            <button onClick={()=>setSplitMode(m=>!m)}
+            <button onClick={()=>{ if(!splitMode) openInRight(tabsA[0]?.ticker||"SPY"); else setSplitMode(false); }}
               style={{background:splitMode?"rgba(0,229,160,0.08)":"none",
                 border:`1px solid ${splitMode?"rgba(0,229,160,0.3)":"#282828"}`,
                 color:splitMode?"var(--green)":"#444",fontFamily:"var(--mono)",
@@ -1624,7 +1846,9 @@ export default function App() {
                 liveSpots={liveSpots}
                 portData={portData} fetchPortfolio={fetchPortfolio} portLoading={portLoading}
                 recentTickers={recentTickers} setRecentTickers={setRecentTickers}
-                compact={splitMode}/>
+                compact={splitMode} role="left"
+                view={view} setView={setView}
+                onOpenRight={openInRight}/>
             </div>
 
             {splitMode&&(
@@ -1635,14 +1859,15 @@ export default function App() {
                     cursor:"col-resize",transition:"background 0.15s",zIndex:10}}
                   onMouseEnter={e=>e.currentTarget.style.background="var(--green)"}
                   onMouseLeave={e=>e.currentTarget.style.background="var(--border)"}/>
-                {/* Pane B */}
+                {/* Right pane — analysis (strategy + lab) */}
                 <div style={{flex:"1 1 0",display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
-                  <Pane tabs={tabsB} setTabs={setTabsB}
+                  <AnalysisPane
+                    tabs={tabsB} setTabs={setTabsB}
                     nextId={nextId} setNextId={setNextId}
                     liveSpots={liveSpots}
-                    portData={portData} fetchPortfolio={fetchPortfolio} portLoading={portLoading}
-                    recentTickers={recentTickers} setRecentTickers={setRecentTickers}
-                    compact={splitMode}/>
+                    labLegs={labLegsB} setLabLegs={setLabLegsB}
+                    view={viewB} setView={setViewB}
+                    onClose={()=>setSplitMode(false)}/>
                 </div>
               </>
             )}
