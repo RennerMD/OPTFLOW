@@ -69,19 +69,35 @@ function SideSection({label,open,onToggle,children,badge,indent=false}) {
 }
 
 // ── ChainTable ─────────────────────────────────────────────────────────────────
-function ChainTable({chain,spot,activeType}) {
+function ChainTable({chain,spot,activeType,onRowClick}) {
   const rows = chain.filter(r=>r.type===activeType);
   const cols = ["strike","bid","ask","mid","volume","OI","iv","delta","gamma","theta","vega"];
   const minDiff = spot ? Math.min(...rows.map(r=>Math.abs(r.strike-spot))) : null;
   return (
     <div className="chain-scroll">
       <table className="chain-table">
-        <thead><tr>{cols.map(c=><th key={c}>{c.toUpperCase()}</th>)}</tr></thead>
+        <thead><tr>
+          {onRowClick&&<th title="Open in Lab">LAB</th>}
+          {cols.map(c=><th key={c}>{c.toUpperCase()}</th>)}
+        </tr></thead>
         <tbody>
           {rows.map((row,i)=>{
             const isATM = minDiff!=null && Math.abs(row.strike-spot)===minDiff;
             return (
               <tr key={i} className={clsx(row.ITM&&"itm",isATM&&"atm")}>
+                {onRowClick&&(
+                  <td style={{padding:"2px 6px"}}>
+                    <button onClick={()=>onRowClick(row)}
+                      title="Analyze in Lab"
+                      style={{background:"none",border:"1px solid #1e1e1e",color:"#333",
+                        fontFamily:"var(--mono)",fontSize:9,padding:"1px 5px",cursor:"pointer",
+                        transition:"all 0.15s",letterSpacing:0}}
+                      onMouseEnter={e=>{e.currentTarget.style.color="var(--green)";e.currentTarget.style.borderColor="var(--green)";}}
+                      onMouseLeave={e=>{e.currentTarget.style.color="#333";e.currentTarget.style.borderColor="#1e1e1e";}}>
+                      +
+                    </button>
+                  </td>
+                )}
                 {cols.map(c=>(
                   <td key={c} className={c==="strike"?"strike-col":""}>
                     {c==="iv"?fmtPct(row[c]):c==="volume"||c==="OI"?fmtK(row[c]):fmt(row[c],c==="strike"?2:4)}
@@ -251,7 +267,7 @@ function PortfolioPanel({data,onTickerOpen}) {
 }
 
 // ── StrategyPanel ──────────────────────────────────────────────────────────────
-function StrategyPanel({chainData}) {
+function StrategyPanel({chainData, onLabOpen}) {
   const [mode,setMode] = useState("longcall");
   if (!chainData) return <div className="panel-empty">Load a chain first</div>;
   const {chain=[],spot,iv_rank:ivRank,dte,atm_iv:atmIV} = chainData;
@@ -297,24 +313,32 @@ function StrategyPanel({chainData}) {
   const calls  = chain.filter(r=>r.type==="call").sort((a,b)=>a.strike-b.strike);
   const puts   = chain.filter(r=>r.type==="put").sort((a,b)=>a.strike-b.strike);
 
-  function recStrikes() {
-    switch(mode) {
-      case "longcall":    return calls.filter(r=>r.strike>=spot*0.99&&r.strike<=spot*1.10).slice(0,6).map(r=>({...r,note:r.strike<=spot*1.015?"ATM":`${((r.strike/spot-1)*100).toFixed(1)}%OTM`}));
-      case "longput":     return puts.filter(r=>r.strike<=spot*1.01&&r.strike>=spot*0.90).slice(-6).map(r=>({...r,note:r.strike>=spot*0.985?"ATM":`${((1-r.strike/spot)*100).toFixed(1)}%OTM`}));
-      case "csp":         return puts.filter(r=>r.strike>=spot*0.82&&r.strike<=spot*0.97).slice(-6).map(r=>({...r,note:`${((1-r.strike/spot)*100).toFixed(1)}%OTM`,annRet:r.bid&&dte?`${((r.bid/r.strike)*(365/dte)*100).toFixed(0)}%`:null}));
-      case "coveredcall": return calls.filter(r=>r.strike>=spot*1.02&&r.strike<=spot*1.15).slice(0,6).map(r=>({...r,note:`${((r.strike/spot-1)*100).toFixed(1)}%OTM`,annRet:r.bid&&dte?`${((r.bid/spot)*(365/dte)*100).toFixed(0)}%`:null}));
+  function recStrikes(modeOverride, chainOverride, spotOverride, dteOverride) {
+    const _mode  = modeOverride  || mode;
+    const _chain = chainOverride || chain;
+    const _spot  = spotOverride  || spot;
+    const _dte   = dteOverride   || dte;
+    const _calls = _chain.filter(r=>r.type==="call").sort((a,b)=>a.strike-b.strike);
+    const _puts  = _chain.filter(r=>r.type==="put").sort((a,b)=>a.strike-b.strike);
+    function _calls_f(a,b){ return _calls.filter(r=>r.strike>=_spot*a&&r.strike<=_spot*b); }
+    function _puts_f(a,b) { return _puts.filter(r=>r.strike>=_spot*a&&r.strike<=_spot*b); }
+    switch(_mode) {
+      case "longcall":    return _calls.filter(r=>r.strike>=_spot*0.99&&r.strike<=_spot*1.10).slice(0,6).map(r=>({...r,type:"call",note:r.strike<=_spot*1.015?"ATM":`${((r.strike/spot-1)*100).toFixed(1)}%OTM`}));
+      case "longput":     return _puts.filter(r=>r.strike<=_spot*1.01&&r.strike>=_spot*0.90).slice(-6).map(r=>({...r,type:"put",note:r.strike>=_spot*0.985?"ATM":`${((1-r.strike/_spot)*100).toFixed(1)}%OTM`}));
+      case "csp":         return _puts.filter(r=>r.strike>=_spot*0.82&&r.strike<=_spot*0.97).slice(-6).map(r=>({...r,type:"call",note:`${((1-r.strike/_spot)*100).toFixed(1)}%OTM`,annRet:r.bid&&_dte?`${((r.bid/r.strike)*(365/dte)*100).toFixed(0)}%`:null}));
+      case "coveredcall": return _calls.filter(r=>r.strike>=_spot*1.02&&r.strike<=_spot*1.15).slice(0,6).map(r=>({...r,type:"call",note:`${((r.strike/spot-1)*100).toFixed(1)}%OTM`,annRet:r.bid&&_dte?`${((r.bid/_spot)*(365/dte)*100).toFixed(0)}%`:null}));
       case "ironcondor": {
-        const sp=puts.filter(r=>r.strike<=spot*0.95).slice(-1)[0];
-        const sc=calls.filter(r=>r.strike>=spot*1.05)[0];
-        const lp=puts.filter(r=>r.strike<=spot*0.90).slice(-1)[0];
-        const lc=calls.filter(r=>r.strike>=spot*1.10)[0];
-        return [sp,sc,lp,lc].filter(Boolean).map((r,i)=>({...r,note:["SHORT PUT","SHORT CALL","LONG PUT","LONG CALL"][i]}));
+        const sp=_puts.filter(r=>r.strike<=_spot*0.95).slice(-1)[0];
+        const sc=_calls.filter(r=>r.strike>=_spot*1.05)[0];
+        const lp=_puts.filter(r=>r.strike<=_spot*0.90).slice(-1)[0];
+        const lc=_calls.filter(r=>r.strike>=_spot*1.10)[0];
+        return [sp,sc,lp,lc].filter(Boolean).map((r,i)=>({...r,type:i<2?"put":"call",note:["SHORT PUT","SHORT CALL","LONG PUT","LONG CALL"][i]}));
       }
-      case "vertical": return calls.filter(r=>r.strike>=spot*0.99&&r.strike<=spot*1.08).slice(0,4).map((r,i)=>({...r,note:i===0?"BUY":"SELL"}));
+      case "vertical": return _calls.filter(r=>r.strike>=_spot*0.99&&r.strike<=_spot*1.08).slice(0,4).map((r,i)=>({...r,note:i===0?"BUY":"SELL"}));
       default: return [];
     }
   }
-  const recs = recStrikes();
+  const recs = recStrikes(null,null,null,null);
 
   return (
     <div style={{display:"flex",flexDirection:"column",gap:12}}>
@@ -339,7 +363,32 @@ function StrategyPanel({chainData}) {
                 <span style={{fontSize:10,fontWeight:700,color:on?s.color:"#bbb"}}>{s.name}</span>
                 <span style={{fontSize:8,color:s.color,background:`rgba(${rgb},0.12)`,padding:"1px 5px"}}>{s.category}</span>
               </div>
-              <div style={{fontSize:9,color:signalColor(s.signal),fontWeight:700,marginBottom:3}}>{s.signal}</div>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
+                <span style={{fontSize:9,color:signalColor(s.signal),fontWeight:700}}>{s.signal}</span>
+                {onLabOpen&&<button onClick={e=>{
+                    e.stopPropagation();
+                    // Build legs from this strategy's recommended strikes
+                    const r2 = recStrikes(s.id, chain, spot, dte);
+                    const legs = r2.slice(0,4).map((rec,i)=>({
+                      id: i+1,
+                      type: rec.type||"call",
+                      dir: rec.note?.includes("SHORT")||rec.note==="SELL" ? "short" : "long",
+                      strike: rec.strike,
+                      iv: rec.iv||atmIV||0.25,
+                      qty: 1,
+                      dte: dte||30,
+                      entry: rec.mid||rec.ask||0,
+                    }));
+                    onLabOpen(legs);
+                  }}
+                  style={{background:"none",border:"1px solid #1e1e1e",color:"#333",
+                    fontFamily:"var(--mono)",fontSize:8,padding:"1px 6px",cursor:"pointer",
+                    transition:"all 0.15s"}}
+                  onMouseEnter={e=>{e.currentTarget.style.color="var(--green)";e.currentTarget.style.borderColor="var(--green)";}}
+                  onMouseLeave={e=>{e.currentTarget.style.color="#333";e.currentTarget.style.borderColor="#1e1e1e";}}>
+                  LAB →
+                </button>}
+              </div>
               {s.score!=null&&(
                 <div style={{display:"flex",alignItems:"center",gap:4}}>
                   <div style={{flex:1,height:2,background:"#1a1a1a"}}>
@@ -394,6 +443,375 @@ function StrategyPanel({chainData}) {
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+
+// ── Black-Scholes (client-side, no API calls needed) ──────────────────────────
+
+function normCDF(x) {
+  const a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911;
+  const sign = x<0 ? -1 : 1;
+  x = Math.abs(x)/Math.sqrt(2);
+  const t = 1/(1+p*x);
+  const y = 1-(((((a5*t+a4)*t)+a3)*t+a2)*t+a1)*t*Math.exp(-x*x);
+  return 0.5*(1+sign*y);
+}
+function normPDF(x){ return Math.exp(-0.5*x*x)/Math.sqrt(2*Math.PI); }
+
+function bsPrice(S,K,T,r,sigma,type){
+  if(T<=0||sigma<=0) return Math.max(0, type==="call"?S-K:K-S);
+  const d1=(Math.log(S/K)+(r+0.5*sigma*sigma)*T)/(sigma*Math.sqrt(T));
+  const d2=d1-sigma*Math.sqrt(T);
+  if(type==="call") return S*normCDF(d1)-K*Math.exp(-r*T)*normCDF(d2);
+  return K*Math.exp(-r*T)*normCDF(-d2)-S*normCDF(-d1);
+}
+
+function bsGreeks(S,K,T,r,sigma,type){
+  if(T<=0||sigma<=0) return {delta:type==="call"&&S>K?1:0,gamma:0,theta:0,vega:0,rho:0};
+  const sqT=Math.sqrt(T);
+  const d1=(Math.log(S/K)+(r+0.5*sigma*sigma)*T)/(sigma*sqT);
+  const d2=d1-sigma*sqT;
+  const pdf=normPDF(d1);
+  const gamma=pdf/(S*sigma*sqT);
+  const vega=S*pdf*sqT/100;
+  if(type==="call"){
+    return {
+      delta:normCDF(d1),gamma,vega,
+      theta:(-S*pdf*sigma/(2*sqT)-r*K*Math.exp(-r*T)*normCDF(d2))/365,
+      rho:K*T*Math.exp(-r*T)*normCDF(d2)/100
+    };
+  }
+  return {
+    delta:normCDF(d1)-1,gamma,vega,
+    theta:(-S*pdf*sigma/(2*sqT)+r*K*Math.exp(-r*T)*normCDF(-d2))/365,
+    rho:-K*T*Math.exp(-r*T)*normCDF(-d2)/100
+  };
+}
+
+// Build payoff data for a set of legs at a given DTE fraction
+function calcPayoff(legs, spotRange, dteRatio, r=0.04){
+  return spotRange.map(S=>{
+    let total=0, totalAtExpiry=0;
+    legs.forEach(leg=>{
+      const sign = leg.dir==="long"?1:-1;
+      const T    = Math.max(0, leg.dte * dteRatio / 365);
+      const Texp = 0;
+      const pNow = bsPrice(S, leg.strike, T, r, leg.iv, leg.type);
+      const pExp = bsPrice(S, leg.strike, Texp, r, leg.iv, leg.type);
+      total         += sign*(pNow - leg.entry)*100*leg.qty;
+      totalAtExpiry += sign*(pExp - leg.entry)*100*leg.qty;
+    });
+    return {S:parseFloat(S.toFixed(2)), pnl:parseFloat(total.toFixed(2)), expiry:parseFloat(totalAtExpiry.toFixed(2))};
+  });
+}
+
+const LEG_COLORS = ["#00e5a0","#4da8ff","#f5a623","#ff4d6d","#9b6dff","#00bcd4"];
+
+function LabPanel({chainData, seedLegs, onClose}){
+  const spot0 = chainData?.spot || 100;
+  const dte0  = chainData?.dte  || 30;
+  const r     = chainData?.risk_free || 0.04;
+  const chain = chainData?.chain || [];
+
+  // Leg state — each: {id,type,dir,strike,iv,qty,dte,entry}
+  const [legs,setLegs] = useState(()=>{
+    if(seedLegs&&seedLegs.length) return seedLegs;
+    // Default: ATM call
+    const calls = chain.filter(c=>c.type==="call").sort((a,b)=>Math.abs(a.strike-spot0)-Math.abs(b.strike-spot0));
+    const atm   = calls[0];
+    return atm ? [{id:1,type:"call",dir:"long",strike:atm.strike,iv:atm.iv||0.25,qty:1,dte:dte0,entry:atm.mid||atm.ask||0}] : [];
+  });
+  const [nextLegId,setNextLegId] = useState(10);
+
+  // Sliders
+  const [spotAdj,setSpotAdj] = useState(0);         // % adjustment from spot0
+  const [dteAdj,setDteAdj]   = useState(100);        // % of original DTE remaining
+  const [ivShift,setIvShift] = useState(0);          // additive IV shift in decimal
+  const [contracts,setContracts] = useState(1);
+  const [chartMode,setChartMode] = useState("simple"); // "simple" | "multi"
+
+  const spot = spot0*(1+spotAdj/100);
+
+  // Available strikes from chain
+  const strikes = [...new Set(chain.map(r=>r.strike))].sort((a,b)=>a-b);
+  const expiries = chainData?.expiries || [];
+
+  const updateLeg = (id,patch) => setLegs(prev=>prev.map(l=>l.id===id?{...l,...patch}:l));
+  const removeLeg = id => setLegs(prev=>prev.filter(l=>l.id!==id));
+  const addLeg = () => {
+    const atm = strikes.reduce((a,b)=>Math.abs(a-spot)<Math.abs(b-spot)?a:b, strikes[0]||spot0);
+    const row = chain.find(c=>c.strike===atm&&c.type==="call");
+    setLegs(prev=>[...prev,{id:nextLegId,type:"call",dir:"long",strike:atm,
+      iv:row?.iv||0.25,qty:1,dte:dte0,entry:row?.mid||0}]);
+    setNextLegId(n=>n+1);
+  };
+
+  // Payoff chart data
+  const lo = spot0*0.75, hi = spot0*1.25;
+  const N  = 80;
+  const spotRange = Array.from({length:N},(_,i)=>lo+(hi-lo)*i/(N-1));
+
+  const effectiveLegs = legs.map(l=>({...l, iv:Math.max(0.01,(l.iv||0.25)+ivShift), qty:l.qty*contracts}));
+  const payoffData    = calcPayoff(effectiveLegs, spotRange, dteAdj/100, r);
+
+  // Greeks at current spot
+  const netGreeks = effectiveLegs.reduce((acc,l)=>{
+    const sign = l.dir==="long"?1:-1;
+    const T    = Math.max(0.001, l.dte*(dteAdj/100)/365);
+    const g    = bsGreeks(spot, l.strike, T, r, l.iv||0.25, l.type);
+    const mult = sign*100*l.qty;
+    return {
+      delta: acc.delta+g.delta*mult,
+      gamma: acc.gamma+g.gamma*mult,
+      theta: acc.theta+g.theta*mult,
+      vega:  acc.vega+g.vega*mult,
+      value: acc.value+sign*bsPrice(spot,l.strike,T,r,l.iv||0.25,l.type)*100*l.qty,
+      cost:  acc.cost+sign*l.entry*100*l.qty,
+    };
+  },{delta:0,gamma:0,theta:0,vega:0,value:0,cost:0});
+  const unrealizedPnl = netGreeks.value - netGreeks.cost;
+
+  // Max profit/loss and breakevens from expiry data
+  const expiryPnls = payoffData.map(d=>d.expiry);
+  const maxProfit  = Math.max(...expiryPnls);
+  const maxLoss    = Math.min(...expiryPnls);
+  const breakevens = [];
+  for(let i=1;i<payoffData.length;i++){
+    const a=payoffData[i-1].expiry, b=payoffData[i].expiry;
+    if((a<0&&b>=0)||(a>=0&&b<0)){
+      const S=payoffData[i-1].S+(payoffData[i].S-payoffData[i-1].S)*(0-a)/(b-a);
+      breakevens.push(S.toFixed(2));
+    }
+  }
+
+  // Chart Y domain with padding
+  const allVals = payoffData.flatMap(d=>[d.pnl,d.expiry]);
+  const yMin = Math.min(...allVals)*1.1, yMax = Math.max(...allVals)*1.1;
+  const yDom = [Math.min(yMin,-50), Math.max(yMax,50)];
+
+  const SliderRow = ({label,value,min,max,step,onChange,display}) => (
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
+      <span style={{fontSize:9,color:"#444",letterSpacing:"0.08em",width:80,flexShrink:0}}>{label}</span>
+      <input type="range" min={min} max={max} step={step} value={value}
+        onChange={e=>onChange(Number(e.target.value))}
+        style={{flex:1,accentColor:"var(--green)",cursor:"pointer"}}/>
+      <span style={{fontSize:10,color:"#ccc",width:60,textAlign:"right",flexShrink:0}}>{display}</span>
+    </div>
+  );
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:10,padding:"10px 14px",overflow:"auto",flex:1}}>
+
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"center",gap:10,borderBottom:"1px solid var(--border)",paddingBottom:8}}>
+        <span className="section-label">OPTIONS LAB</span>
+        <span style={{fontSize:10,color:"#444"}}>
+          {chainData?.ticker} · ${fmt(spot)} · {Math.round(dte0*(dteAdj/100))}d remaining
+        </span>
+        <button onClick={addLeg}
+          style={{marginLeft:"auto",background:"var(--green)",border:"none",color:"#000",
+            fontFamily:"var(--mono)",fontSize:10,fontWeight:700,padding:"3px 10px",cursor:"pointer"}}>
+          + ADD LEG
+        </button>
+        {onClose&&<button onClick={onClose}
+          style={{background:"none",border:"1px solid var(--border2)",color:"#555",
+            fontFamily:"var(--mono)",fontSize:10,padding:"3px 8px",cursor:"pointer",
+            transition:"all 0.15s"}}
+          onMouseEnter={e=>{e.currentTarget.style.color="var(--red)";e.currentTarget.style.borderColor="var(--red)";}}
+          onMouseLeave={e=>{e.currentTarget.style.color="#555";e.currentTarget.style.borderColor="var(--border2)";}}>
+          ✕ CLOSE
+        </button>}
+      </div>
+
+      {/* Legs */}
+      {legs.length===0&&(
+        <div style={{padding:"12px",fontSize:10,color:"#333",textAlign:"center",
+          border:"1px dashed var(--border2)"}}>No legs — click + ADD LEG or click a strike in the chain</div>
+      )}
+      {legs.map((leg,i)=>{
+        const color = LEG_COLORS[i%LEG_COLORS.length];
+        const sign  = leg.dir==="long"?1:-1;
+        const T     = Math.max(0.001,leg.dte*(dteAdj/100)/365);
+        const curP  = bsPrice(spot,leg.strike,T,r,(leg.iv||0.25)+ivShift,leg.type);
+        const legPnl= sign*(curP-leg.entry)*100*leg.qty*contracts;
+        return (
+          <div key={leg.id} style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",
+            padding:"7px 10px",border:`1px solid rgba(${color==="var(--green)"?"0,229,160":color==="#4da8ff"?"77,168,255":color==="#f5a623"?"245,166,35":color==="#ff4d6d"?"255,77,109":"155,109,255"},0.2)`,
+            background:"var(--bg1)",borderLeft:`3px solid ${color}`}}>
+            {/* Type */}
+            <select value={leg.type} onChange={e=>updateLeg(leg.id,{type:e.target.value})}
+              className="expiry-select" style={{width:56}}>
+              <option value="call">CALL</option>
+              <option value="put">PUT</option>
+            </select>
+            {/* Direction */}
+            <select value={leg.dir} onChange={e=>updateLeg(leg.id,{dir:e.target.value})}
+              className="expiry-select" style={{width:62}}>
+              <option value="long">LONG</option>
+              <option value="short">SHORT</option>
+            </select>
+            {/* Strike */}
+            <select value={leg.strike} onChange={e=>updateLeg(leg.id,{strike:Number(e.target.value),
+              entry:(chain.find(c=>c.strike===Number(e.target.value)&&c.type===leg.type)?.mid||leg.entry)})}
+              className="expiry-select" style={{width:76}}>
+              {strikes.map(k=><option key={k} value={k}>${k}</option>)}
+            </select>
+            {/* IV */}
+            <div style={{display:"flex",alignItems:"center",gap:4}}>
+              <span style={{fontSize:9,color:"#444"}}>IV</span>
+              <input type="number" value={((leg.iv||0.25)*100).toFixed(1)}
+                onChange={e=>updateLeg(leg.id,{iv:Math.max(0.01,Number(e.target.value)/100)})}
+                style={{width:52,background:"var(--bg2)",border:"1px solid var(--border2)",
+                  color:"#ccc",fontFamily:"var(--mono)",fontSize:10,padding:"2px 4px",textAlign:"right"}}/>
+              <span style={{fontSize:9,color:"#444"}}>%</span>
+            </div>
+            {/* Qty */}
+            <div style={{display:"flex",alignItems:"center",gap:4}}>
+              <span style={{fontSize:9,color:"#444"}}>QTY</span>
+              <input type="number" min={1} max={100} value={leg.qty}
+                onChange={e=>updateLeg(leg.id,{qty:Math.max(1,parseInt(e.target.value)||1)})}
+                style={{width:40,background:"var(--bg2)",border:"1px solid var(--border2)",
+                  color:"#ccc",fontFamily:"var(--mono)",fontSize:10,padding:"2px 4px",textAlign:"right"}}/>
+            </div>
+            {/* Entry */}
+            <div style={{display:"flex",alignItems:"center",gap:4}}>
+              <span style={{fontSize:9,color:"#444"}}>ENTRY</span>
+              <input type="number" step={0.01} value={leg.entry.toFixed(2)}
+                onChange={e=>updateLeg(leg.id,{entry:Math.max(0,Number(e.target.value))})}
+                style={{width:54,background:"var(--bg2)",border:"1px solid var(--border2)",
+                  color:"#ccc",fontFamily:"var(--mono)",fontSize:10,padding:"2px 4px",textAlign:"right"}}/>
+            </div>
+            {/* Live P&L */}
+            <span style={{marginLeft:"auto",fontSize:11,fontWeight:700,color:pnlColor(legPnl)}}>
+              {legPnl>=0?"+":""}{fmtUSD(legPnl)}
+            </span>
+            <button onClick={()=>removeLeg(leg.id)}
+              style={{background:"none",border:"none",color:"#333",cursor:"pointer",
+                fontSize:14,padding:0,fontFamily:"var(--mono)",transition:"color 0.15s"}}
+              onMouseEnter={e=>e.target.style.color="var(--red)"}
+              onMouseLeave={e=>e.target.style.color="#333"}>×</button>
+          </div>
+        );
+      })}
+
+      {/* Sliders */}
+      <div style={{border:"1px solid var(--border)",padding:"10px 12px",background:"var(--bg1)"}}>
+        <div style={{fontSize:9,color:"#444",letterSpacing:"0.1em",marginBottom:8}}>SCENARIO</div>
+        <SliderRow label="UNDERLYING" value={spotAdj} min={-25} max={25} step={0.5}
+          onChange={setSpotAdj} display={`$${fmt(spot)} (${spotAdj>=0?"+":""}${spotAdj}%)`}/>
+        <SliderRow label="DTE" value={dteAdj} min={0} max={100} step={1}
+          onChange={setDteAdj} display={`${Math.round(dte0*dteAdj/100)}d (${dteAdj}%)`}/>
+        <SliderRow label="IV SHIFT" value={Math.round(ivShift*100)} min={-30} max={30} step={1}
+          onChange={v=>setIvShift(v/100)} display={`${ivShift>=0?"+":""}${(ivShift*100).toFixed(0)}%`}/>
+        <SliderRow label="CONTRACTS" value={contracts} min={1} max={50} step={1}
+          onChange={setContracts} display={`${contracts}×`}/>
+      </div>
+
+      {/* Payoff chart */}
+      <div style={{border:"1px solid var(--border)",padding:"10px 12px",background:"var(--bg1)"}}>
+        <div style={{display:"flex",alignItems:"center",marginBottom:8}}>
+          <span style={{fontSize:9,color:"#444",letterSpacing:"0.1em",flex:1}}>PAYOFF DIAGRAM</span>
+          <div style={{display:"flex",gap:2}}>
+            {["simple","multi"].map(m=>(
+              <button key={m} onClick={()=>setChartMode(m)}
+                style={{background:chartMode===m?"var(--green)":"none",
+                  border:"1px solid var(--border2)",
+                  color:chartMode===m?"#000":"#555",fontFamily:"var(--mono)",
+                  fontSize:9,padding:"2px 8px",cursor:"pointer",letterSpacing:"0.06em"}}>
+                {m.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        </div>
+        <ResponsiveContainer width="100%" height={180}>
+          <LineChart data={payoffData} margin={{top:4,right:8,bottom:4,left:48}}>
+            <XAxis dataKey="S" type="number" domain={[lo,hi]}
+              tickFormatter={v=>`$${v.toFixed(0)}`}
+              tick={{fontSize:9,fill:"#444"}} tickLine={false} axisLine={false}/>
+            <YAxis domain={yDom} tickFormatter={v=>v>=0?`+$${v.toFixed(0)}`:`-$${Math.abs(v).toFixed(0)}`}
+              tick={{fontSize:9,fill:"#444"}} tickLine={false} axisLine={false} width={46}/>
+            <Tooltip
+              contentStyle={{background:"#111",border:"1px solid #232323",fontSize:10}}
+              formatter={(v,n)=>[`${v>=0?"+":""}$${v.toFixed(2)}`,n==="pnl"?"Now":"Expiry"]}
+              labelFormatter={v=>`$${Number(v).toFixed(2)}`}/>
+            {/* Zero line */}
+            <Line type="monotone" dataKey={()=>0} stroke="#222" strokeWidth={1} dot={false} legendType="none" tooltipType="none"/>
+            {/* Current spot line — reference line via custom dot */}
+            {chartMode==="simple"&&(
+              <Line type="monotone" dataKey="expiry" stroke="#00e5a0" strokeWidth={2}
+                dot={false} name="Expiry"/>
+            )}
+            {chartMode==="simple"&&(
+              <Line type="monotone" dataKey="pnl" stroke="#4da8ff" strokeWidth={1.5}
+                dot={false} strokeDasharray="4 3" name="Now"/>
+            )}
+            {chartMode==="multi"&&legs.map((leg,i)=>{
+              const c=LEG_COLORS[i%LEG_COLORS.length];
+              const sign=leg.dir==="long"?1:-1;
+              return (
+                <Line key={leg.id} type="monotone"
+                  dataKey={d=>sign*(bsPrice(d.S,leg.strike,0,r,(leg.iv||0.25)+ivShift,leg.type)-leg.entry)*100*leg.qty*contracts}
+                  stroke={c} strokeWidth={1} dot={false} strokeDasharray="3 2"
+                  name={`${leg.dir} ${leg.type} ${leg.strike}`}/>
+              );
+            })}
+            {chartMode==="multi"&&(
+              <Line type="monotone" dataKey="expiry" stroke="#fff" strokeWidth={2.5}
+                dot={false} name="Combined"/>
+            )}
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Greeks + stats */}
+      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+        {/* Net Greeks */}
+        <div style={{flex:2,minWidth:200,border:"1px solid var(--border)",
+          padding:"8px 12px",background:"var(--bg1)"}}>
+          <div style={{fontSize:9,color:"#444",letterSpacing:"0.1em",marginBottom:8}}>NET GREEKS</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px 16px"}}>
+            {[["Δ DELTA",netGreeks.delta.toFixed(3),netGreeks.delta>0?"#00e5a0":netGreeks.delta<0?"#ff4d6d":"#555"],
+              ["Γ GAMMA",netGreeks.gamma.toFixed(4),"#4da8ff"],
+              ["Θ THETA",`${netGreeks.theta.toFixed(2)}/d`,netGreeks.theta<0?"#ff4d6d":"#00e5a0"],
+              ["V VEGA", netGreeks.vega.toFixed(3),"#9b6dff"],
+              ["P&L NOW",`${unrealizedPnl>=0?"+":""}$${unrealizedPnl.toFixed(2)}`,pnlColor(unrealizedPnl)],
+            ].map(([l,v,c])=>(
+              <div key={l} style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <span style={{fontSize:9,color:"#444"}}>{l}</span>
+                <span style={{fontSize:11,fontWeight:700,color:c}}>{v}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        {/* Trade stats */}
+        <div style={{flex:1,minWidth:140,border:"1px solid var(--border)",
+          padding:"8px 12px",background:"var(--bg1)"}}>
+          <div style={{fontSize:9,color:"#444",letterSpacing:"0.1em",marginBottom:8}}>TRADE STATS</div>
+          <div style={{display:"flex",flexDirection:"column",gap:5}}>
+            <div style={{display:"flex",justifyContent:"space-between"}}>
+              <span style={{fontSize:9,color:"#444"}}>MAX PROFIT</span>
+              <span style={{fontSize:11,fontWeight:700,color:"#00e5a0"}}>
+                {maxProfit>9999?"UNLIMITED":`+$${maxProfit.toFixed(0)}`}
+              </span>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between"}}>
+              <span style={{fontSize:9,color:"#444"}}>MAX LOSS</span>
+              <span style={{fontSize:11,fontWeight:700,color:"#ff4d6d"}}>
+                {maxLoss<-9999?"UNLIMITED":`-$${Math.abs(maxLoss).toFixed(0)}`}
+              </span>
+            </div>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+              <span style={{fontSize:9,color:"#444"}}>BREAKEVEN</span>
+              <span style={{fontSize:10,color:"#f5a623",textAlign:"right"}}>
+                {breakevens.length?breakevens.map(b=>`$${b}`).join(" / "):"—"}
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div>
   );
 }
@@ -797,8 +1215,26 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
   const [activeTabId,setActiveTabId] = useState(tabs[0]?.id||1);
   const [view,setView]               = useState("portfolio");
   const [inputTicker,setInput]       = useState("");
+  const [navStack,setNavStack]       = useState([]);  // [{view, tabId}]
+  const [labLegs,setLabLegs]         = useState([]);   // seed legs for LabPanel
   const dragIdx = useRef(null);
   const wsRefs  = useRef({});
+
+  // Push current state before any navigation
+  const pushNav = useCallback((currentView, currentTabId) => {
+    setNavStack(prev => [...prev.slice(-19), {view: currentView, tabId: currentTabId}]);
+  }, []);
+
+  const goBack = useCallback(() => {
+    setNavStack(prev => {
+      if (!prev.length) return prev;
+      const stack    = [...prev];
+      const last     = stack.pop();
+      setView(last.view);
+      setActiveTabId(last.tabId);
+      return stack;
+    });
+  }, []);
 
   const activeTab = tabs.find(t=>t.id===activeTabId)||tabs[0];
 
@@ -829,7 +1265,11 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
 
   const openTicker = useCallback((tkr)=>{
     const ex=tabs.find(t=>t.ticker===tkr);
-    if (ex){setActiveTabId(ex.id);setView("chain");return;}
+    if (ex){
+      pushNav(view, activeTabId);
+      setActiveTabId(ex.id); setView("chain"); return;
+    }
+    pushNav(view, activeTabId);
     const id=nextId; setNextId(n=>n+1);
     setTabs(p=>[...p,{id,ticker:tkr,chainData:null,expiry:null,expiries:[],
                        loading:false,error:null,activeType:"call",livePrice:null}]);
@@ -866,6 +1306,17 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
       {/* Pane header */}
       <div style={{display:"flex",alignItems:"center",gap:8,padding:"3px 10px",
         background:"var(--bg1)",borderBottom:"1px solid var(--border)",flexShrink:0,flexWrap:"wrap",rowGap:3}}>
+        {/* Back button */}
+        {navStack.length>0&&(
+          <button onClick={goBack} title={`Back to ${navStack[navStack.length-1].view}`}
+            style={{background:"none",border:"1px solid var(--border2)",color:"#555",
+              fontFamily:"var(--mono)",fontSize:11,padding:"3px 8px",cursor:"pointer",
+              transition:"all 0.15s",flexShrink:0,letterSpacing:0}}
+            onMouseEnter={e=>{e.currentTarget.style.color="var(--green)";e.currentTarget.style.borderColor="var(--green)";}}
+            onMouseLeave={e=>{e.currentTarget.style.color="#555";e.currentTarget.style.borderColor="var(--border2)";}}>
+            ← {navStack[navStack.length-1].view}
+          </button>
+        )}
         <form onSubmit={handleSearch} style={{display:"flex"}}>
           <input value={inputTicker} onChange={e=>setInput(e.target.value.toUpperCase())}
             placeholder="TICKER" maxLength={6} className="ticker-input" style={{width:68}}/>
@@ -883,8 +1334,8 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
           );
         })}
         <div style={{marginLeft:"auto",display:"flex",gap:2}}>
-          {["portfolio","chain","strategy"].map(v=>(
-            <button key={v} onClick={()=>setView(v)}
+          {["portfolio","chain","strategy","lab"].map(v=>(
+            <button key={v} onClick={()=>{ if(v!==view){pushNav(view,activeTabId);} setView(v); }}
               style={{background:"none",border:`1px solid ${view===v?"var(--green)":"transparent"}`,
                 color:view===v?"var(--green)":"var(--muted)",fontFamily:"var(--mono)",
                 fontSize:10,padding:"2px 8px",cursor:"pointer",transition:"all 0.15s",letterSpacing:"0.06em"}}>
@@ -989,10 +1440,24 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
             )}
             {activeTab.loading&&<div className="loading-bar">FETCHING…</div>}
             {activeTab.chainData
-              ?<ChainTable chain={activeTab.chainData.chain} spot={activeTab.chainData.spot} activeType={activeTab.activeType}/>
+              ?<ChainTable chain={activeTab.chainData.chain} spot={activeTab.chainData.spot} activeType={activeTab.activeType}
+                  onRowClick={row=>{
+                    pushNav(view,activeTabId);
+                    setLabLegs([{id:1,type:row.type,dir:"long",strike:row.strike,
+                      iv:row.iv||0.25,qty:1,dte:activeTab.chainData.dte||30,entry:row.mid||row.ask||0}]);
+                    setView("lab");
+                  }}/>
               :!activeTab.loading&&<div className="panel-empty">Enter a ticker and press +</div>}
             {activeTab.chainData&&<IVChart ticker={activeTab.ticker}/>}
           </>
+        )}
+
+        {view==="lab"&&activeTab&&(
+          <LabPanel
+            chainData={activeTab.chainData}
+            seedLegs={labLegs}
+            onClose={()=>{ pushNav(view,activeTabId); setView("strategy"); }}
+          />
         )}
 
         {view==="strategy"&&activeTab&&(
@@ -1005,7 +1470,12 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
                     fontSize:10,fontWeight:700,padding:"3px 10px",cursor:"pointer"}}>LOAD CHAIN</button>
               )}
             </div>
-            <StrategyPanel chainData={activeTab.chainData}/>
+            <StrategyPanel chainData={activeTab.chainData}
+              onLabOpen={legs=>{
+                pushNav(view,activeTabId);
+                setLabLegs(legs);
+                setView("lab");
+              }}/>
           </>
         )}
       </div>
