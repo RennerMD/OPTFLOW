@@ -4,20 +4,20 @@ color 0A
 chcp 65001 >nul 2>&1
 
 :: ══════════════════════════════════════════════════════════════
-::  OPTFLOW.bat — one-click launcher for Windows
+::  platform\windows\OPTFLOW.bat — Windows one-click launcher
 ::
-::  First time?  Run setup_windows.bat first (installs Python
-::  packages and Node dependencies automatically).
-::
-::  Daily use:   Just double-click this file.
-::
-::  To stop:     Close this window, or press Ctrl+C,
-::               or use Stop Session in the sidebar.
+::  First time?  Run platform\windows\setup_windows.bat first.
+::  Daily use:   Double-click this file.
+::  To stop:     Close this window, Ctrl+C, or Stop Session
+::               in the sidebar.
 :: ══════════════════════════════════════════════════════════════
 
 setlocal enabledelayedexpansion
-set "DIR=%~dp0"
-cd /d "%DIR%"
+
+:: Resolve OPTFLOW root (two levels up from platform\windows\)
+set "SELF=%~dp0"
+for %%A in ("%SELF%..\..") do set "ROOT=%%~fA"
+cd /d "%ROOT%"
 
 echo.
 echo  ==========================================
@@ -35,15 +35,12 @@ for %%c in (python python3 py) do (
 )
 if not defined PYTHON (
     echo  [ERROR] Python 3 not found.
-    echo.
-    echo  Install from:  https://python.org/downloads/
-    echo  During setup:  check "Add Python to PATH"
-    echo.
-    echo  Then re-run this file.
+    echo  Install from https://python.org/downloads/
+    echo  Check "Add Python to PATH" during install.
     pause & exit /b 1
 )
 
-:: ── Node / npm ─────────────────────────────────────────────────
+:: ── npm ────────────────────────────────────────────────────────
 set "NPM="
 for %%c in (npm npm.cmd) do (
     if not defined NPM (
@@ -53,51 +50,38 @@ for %%c in (npm npm.cmd) do (
 )
 if not defined NPM (
     echo  [ERROR] Node.js not found.
-    echo.
-    echo  Install from:  https://nodejs.org/  (choose LTS)
-    echo  Use default options during install.
-    echo.
-    echo  Then re-run this file.
+    echo  Install from https://nodejs.org/ (LTS version)
     pause & exit /b 1
 )
 
-:: ── Auto-install Python packages if missing ────────────────────
+:: ── Auto-install Python packages ──────────────────────────────
 %PYTHON% -c "import fastapi" >nul 2>&1
 if %errorlevel% neq 0 (
-    echo  [SETUP] Installing Python packages (one-time, ~2 min)...
+    echo  [SETUP] Installing Python packages...
     %PYTHON% -m pip install --upgrade pip --quiet
     %PYTHON% -m pip install ^
         "fastapi" "uvicorn[standard]" "aiohttp" "websockets" ^
         "python-dotenv" "python-multipart" "requests" "httpx" ^
-        "yfinance" "pandas" "numpy" "scipy" "rich" ^
-        --quiet
-    if %errorlevel% neq 0 (
-        echo  [ERROR] pip install failed.
-        echo  Check internet connection and try again.
-        pause & exit /b 1
-    )
-    echo  [OK] Python packages ready.
+        "yfinance" "pandas" "numpy" "scipy" "rich" --quiet
+    if %errorlevel% neq 0 ( echo  [ERROR] pip install failed. & pause & exit /b 1 )
 )
 
-:: ── Auto-install Node packages if missing ─────────────────────
-if not exist "%DIR%frontend\node_modules" (
-    echo  [SETUP] Installing frontend packages (one-time, ~1 min)...
-    cd /d "%DIR%frontend"
+:: ── Auto-install Node packages ─────────────────────────────────
+if not exist "%ROOT%\frontend\node_modules" (
+    echo  [SETUP] Installing frontend packages...
+    cd /d "%ROOT%\frontend"
     %NPM% install --silent
-    if %errorlevel% neq 0 (
-        echo  [ERROR] npm install failed.
-        pause & exit /b 1
-    )
-    cd /d "%DIR%"
-    echo  [OK] Frontend packages ready.
+    if %errorlevel% neq 0 ( echo  [ERROR] npm install failed. & pause & exit /b 1 )
+    cd /d "%ROOT%"
 )
 
 :: ── Create .env if missing ─────────────────────────────────────
-if not exist "%DIR%.env" (
-    echo POLYGON_API_KEY=>  "%DIR%.env"
-    echo TRADIER_TOKEN=>>   "%DIR%.env"
-    echo TRADIER_SANDBOX=false>> "%DIR%.env"
-    echo  [OK] Created .env — add API keys via the sidebar after launch.
+if not exist "%ROOT%\.env" (
+    copy "%ROOT%\.env.example" "%ROOT%\.env" >nul 2>&1 || (
+        echo POLYGON_API_KEY=>  "%ROOT%\.env"
+        echo TRADIER_TOKEN=>>   "%ROOT%\.env"
+        echo TRADIER_SANDBOX=false>> "%ROOT%\.env"
+    )
 )
 
 :: ── Free ports ─────────────────────────────────────────────────
@@ -112,9 +96,8 @@ timeout /t 1 /nobreak >nul
 :: ── Launch ─────────────────────────────────────────────────────
 echo  [INFO] Starting OPTFLOW...
 echo.
-%PYTHON% launch_windows.py
+%PYTHON% "%ROOT%\launch_windows.py"
 
-:: ── Landed here = Python exited ────────────────────────────────
 echo.
 echo  OPTFLOW has stopped.
 pause

@@ -1,9 +1,12 @@
 #!/usr/bin/env zsh
-# OPTFLOW.command — double-click in Finder to launch
-# First time: chmod +x OPTFLOW.command
+# OPTFLOW.command — macOS double-click launcher
+# Make executable once: chmod +x platform/macos/OPTFLOW.command
+# Or copy to the OPTFLOW root: cp platform/macos/OPTFLOW.command .
 
+# Resolve the OPTFLOW root (two levels up from platform/macos/)
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+cd "$ROOT"
 
 # Homebrew PATH (Apple Silicon)
 [[ -f /opt/homebrew/bin/brew ]] && eval "$(/opt/homebrew/bin/brew shellenv)"
@@ -14,14 +17,12 @@ if ! command -v python3 &>/dev/null; then
   exit 1
 fi
 
-# Free both ports cleanly — uvicorn is no longer a daemon, safe to kill
+# Free both ports cleanly
 for port in 8000 5173; do
   pids=$(lsof -ti :$port 2>/dev/null)
   [[ -n "$pids" ]] && echo "[OPTFLOW] Freeing port $port" && echo "$pids" | xargs kill -9 2>/dev/null && sleep 0.3
 done
 
-# Remove stale PID file
-rm -f "$SCRIPT_DIR/.optflow.pid"
+rm -f "$ROOT/.optflow.pid"
 
-# Launch
-python3 "$SCRIPT_DIR/launch.py"
+python3 "$ROOT/launch.py"

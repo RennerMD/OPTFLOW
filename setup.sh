@@ -1,112 +1,80 @@
 #!/usr/bin/env zsh
-# setup.sh — full OPTFLOW install
-# Run: chmod +x setup.sh && ./setup.sh
+# platform/macos/setup.sh — macOS first-time setup
+# Run from project root: chmod +x platform/macos/setup.sh && ./platform/macos/setup.sh
 
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
-echo "━━━ OPTFLOW Setup ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "━━━ OPTFLOW Setup (macOS) ━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-# ── Homebrew ───────────────────────────────────────────────
+# ── Homebrew ───────────────────────────────────────────────────
 if ! command -v brew &>/dev/null; then
-  echo "\n⚠  Homebrew is not installed."
-  echo "   Homebrew is required to install Node.js."
+  echo "\n⚠  Homebrew not found."
   printf "   Install Homebrew now? [y/N] "
-  read -r answer
-  if [[ "$answer" =~ ^[Yy]$ ]]; then
-    echo "→ Installing Homebrew..."
+  read -r ans
+  if [[ "$ans" =~ ^[Yy]$ ]]; then
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-    if [[ -f /opt/homebrew/bin/brew ]]; then
-      eval "$(/opt/homebrew/bin/brew shellenv)"
-      echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zshrc
-    fi
+    [[ -f /opt/homebrew/bin/brew ]] && eval "$(/opt/homebrew/bin/brew shellenv)"
+    echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zshrc
     echo "   ✓ Homebrew installed"
   else
-    echo "   ✗ Skipping Homebrew. Install Node.js manually: https://nodejs.org"
+    echo "   Skipping — install Node.js manually: https://nodejs.org"
   fi
 else
-  echo "✓ Homebrew already installed"
+  echo "✓ Homebrew $(brew --version | head -1)"
 fi
 
-# ── Node.js / npm ──────────────────────────────────────────
+# ── Node.js ────────────────────────────────────────────────────
 if ! command -v node &>/dev/null; then
   if command -v brew &>/dev/null; then
-    echo "\n→ Installing Node.js via Homebrew..."
+    echo "\n→ Installing Node.js..."
     brew install node
-    echo "   ✓ Node.js installed ($(node --version))"
+    echo "   ✓ Node.js $(node --version)"
   else
-    echo "\n⚠  Node.js not found and Homebrew unavailable. Install: https://nodejs.org"
+    echo "\n⚠  Node.js not found. Install from https://nodejs.org"
   fi
 else
-  echo "✓ Node.js already installed ($(node --version))"
+  echo "✓ Node.js $(node --version)"
 fi
 
-# ── Python dependencies ────────────────────────────────────
-echo "\n→ Installing Python dependencies..."
+# ── Python packages ────────────────────────────────────────────
+echo "\n→ Installing Python packages..."
 pip3 install \
-  yfinance \
-  pandas \
-  numpy \
-  scipy \
-  rich \
-  fastapi \
-  "uvicorn[standard]" \
-  aiohttp \
-  websockets \
-  python-dotenv \
-  python-multipart \
-  requests \
-  httpx \
+  fastapi "uvicorn[standard]" aiohttp websockets \
+  python-dotenv python-multipart requests httpx \
+  yfinance pandas numpy scipy rich \
   --break-system-packages --quiet
-echo "   ✓ Python deps installed"
+echo "   ✓ Python packages installed"
 
-# ── .env template ──────────────────────────────────────────
-if [ ! -f "$SCRIPT_DIR/.env" ]; then
-  cat > "$SCRIPT_DIR/.env" <<EOF
-# Polygon.io API key — https://polygon.io (free tier = 15min delayed)
-# Starter plan ($29/mo) = real-time REST. Leave blank to use yfinance fallback.
-POLYGON_API_KEY=
-EOF
-  echo "   ✓ Created .env — add POLYGON_API_KEY when ready"
-else
-  echo "   ✓ .env already exists"
-fi
-
-# ── Frontend npm install ────────────────────────────────────
+# ── Frontend ───────────────────────────────────────────────────
 if command -v npm &>/dev/null; then
   echo "\n→ Installing frontend dependencies..."
-  cd "$SCRIPT_DIR/frontend"
-  npm install --silent
-  cd "$SCRIPT_DIR"
-  echo "   ✓ Frontend deps installed"
+  cd "$ROOT/frontend" && npm install --silent && cd "$ROOT"
+  echo "   ✓ Frontend packages installed"
 else
-  echo "\n⚠  npm not found — skipping frontend install"
-  echo "   After installing Node, run: cd frontend && npm install"
+  echo "\n⚠  npm not found — run: cd frontend && npm install"
 fi
 
-# ── Make cli.py executable ─────────────────────────────────
-chmod +x "$SCRIPT_DIR/cli.py"
-
-# ── Shell alias ────────────────────────────────────────────
-ALIAS_LINE="alias options='python3 ${SCRIPT_DIR}/cli.py'"
-if ! grep -qF "alias options=" ~/.zshrc 2>/dev/null; then
-  printf "\n# OPTFLOW options terminal\n$ALIAS_LINE\n" >> ~/.zshrc
-  echo "   ✓ Added 'options' alias to ~/.zshrc"
+# ── .env ───────────────────────────────────────────────────────
+if [[ ! -f "$ROOT/.env" ]]; then
+  cp "$ROOT/.env.example" "$ROOT/.env" 2>/dev/null || cat > "$ROOT/.env" <<'EOF'
+POLYGON_API_KEY=
+TRADIER_TOKEN=
+TRADIER_SANDBOX=false
+EOF
+  echo "✓ Created .env — add API keys via the sidebar after launch"
 else
-  echo "   ✓ 'options' alias already in ~/.zshrc"
+  echo "✓ .env already exists"
 fi
 
-# ── Done ───────────────────────────────────────────────────
+# ── Permissions ────────────────────────────────────────────────
+chmod +x "$SCRIPT_DIR/OPTFLOW.command"
+chmod +x "$ROOT/sync.sh" "$ROOT/stop.py" 2>/dev/null || true
+
 echo "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "Setup complete!\n"
-echo "Start the stack (two terminal tabs):\n"
-echo "  Tab 1 — API server:"
-echo "    cd $SCRIPT_DIR && uvicorn api:app --reload --port 8000\n"
-echo "  Tab 2 — React UI:"
-echo "    cd $SCRIPT_DIR/frontend && npm run dev\n"
-echo "  Then open: http://localhost:5173\n"
-echo "CLI (after: source ~/.zshrc):"
-echo "  options chain SPY"
-echo "  options chain QQQ --expiry 2025-06-20"
-echo "  options portfolio --file positions.json"
+echo "Launch:  double-click platform/macos/OPTFLOW.command"
+echo "     or: python3 launch.py"
+echo "\nDashboard opens at http://127.0.0.1:5173"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
