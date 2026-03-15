@@ -14,7 +14,7 @@ from datetime import date, datetime
 from typing import Optional
 from dotenv import load_dotenv
 from common.paths import ENV_FILE
-from common.options_chain import greeks, implied_vol, generate_signals, iv_rank
+from common.options_chain import greeks, implied_vol, generate_signals, iv_rank, _int
 
 BASE_LIVE    = "https://api.tradier.com"
 BASE_SANDBOX = "https://sandbox.tradier.com"
@@ -76,7 +76,7 @@ def fetch_chain_tradier(ticker: str, expiry: Optional[str] = None, r: float = 0.
 
     S   = get_spot(ticker)
     T   = max((datetime.strptime(expiry, "%Y-%m-%d").date() - date.today()).days, 0) / 365.0
-    dte = int(T * 365)
+    dte = _int(T * 365)
 
     data    = _get("/v1/markets/options/chains",
                    {"symbol": ticker.upper(), "expiration": expiry, "greeks": "true"})
@@ -114,8 +114,8 @@ def fetch_chain_tradier(ticker: str, expiry: Optional[str] = None, r: float = 0.
         rows.append({
             "type": otype, "strike": strike, "bid": bid, "ask": ask,
             "mid": mid, "last": last,
-            "volume": int(opt.get("volume") or 0),
-            "OI": int(opt.get("open_interest") or 0),
+            "volume": _int(opt.get("volume")),
+            "OI": _int(opt.get("open_interest")),
             "iv": iv, "delta": delta, "gamma": gamma, "theta": theta, "vega": vega,
             "ITM": (otype=="call" and strike<S) or (otype=="put" and strike>S),
         })

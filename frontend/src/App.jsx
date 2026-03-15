@@ -44,16 +44,23 @@ function SignalChip({action,reason}) {
   );
 }
 
-function SideSection({label,open,onToggle,children,badge}) {
+function SideSection({label,open,onToggle,children,badge,indent=false}) {
   return (
-    <div style={{borderBottom:"1px solid var(--border)",flexShrink:0}}>
-      <button onClick={onToggle} className="side-section-btn">
+    <div style={{
+      borderBottom:indent?"none":"1px solid var(--border)",
+      borderTop:indent?"1px solid rgba(255,255,255,0.04)":"none",
+      flexShrink:0,
+    }}>
+      <button onClick={onToggle} className="side-section-btn"
+        style={{paddingLeft:indent?"22px":"14px",fontSize:indent?"8px":"9px",
+          color:indent?"#333":"#444"}}>
         <span style={{display:"flex",alignItems:"center",gap:6}}>
+          {indent&&<span style={{fontSize:8,color:"#2a2a2a"}}>▸</span>}
           {label}
           {badge&&<span style={{background:"rgba(255,77,109,0.15)",color:"#ff4d6d",
             fontSize:9,padding:"1px 5px",borderRadius:2}}>{badge}</span>}
         </span>
-        <span style={{fontSize:10,transition:"transform 0.2s",
+        <span style={{fontSize:9,transition:"transform 0.2s",
           display:"inline-block",transform:open?"rotate(180deg)":"rotate(0deg)"}}>▾</span>
       </button>
       {open&&<div>{children}</div>}
@@ -399,7 +406,8 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
 
   const [sections,setSections] = useState(()=>
     recall("optflow_sidebar_sections",
-      {views:true,watchlist:true,positions:false,apikeys:false,import:false,brokers:false,settings:false}));
+      {views:true,watchlist:true,positions:false,settings:false,
+       settings_keys:false,settings_import:false,settings_brokers:false}));
 
   const toggle = k => {
     const next={...sections,[k]:!sections[k]};
@@ -665,93 +673,16 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
           </div>
         </SideSection>
 
-        {/* ── API KEYS ── */}
-        <SideSection label="API KEYS" open={sections.apikeys} onToggle={()=>toggle("apikeys")}>
-          <div style={{padding:"8px 12px",display:"flex",flexDirection:"column",gap:8}}>
-            {/* Current keys */}
-            {Object.entries(envData).map(([k,v])=>(
-              <div key={k} style={{display:"flex",justifyContent:"space-between",alignItems:"center",fontSize:10}}>
-                <span style={{color:"#4da8ff",letterSpacing:"0.06em"}}>{k}</span>
-                <span style={{color:v?"#00e5a0":"#333",fontSize:9}}>{v?"● SET":"○ NOT SET"}</span>
-              </div>
-            ))}
-            <div style={{borderTop:"1px solid var(--border)",paddingTop:8}}>
-              <div style={{fontSize:9,color:"#444",letterSpacing:"0.08em",marginBottom:4}}>POLYGON API KEY</div>
-              <div style={{display:"flex",gap:4}}>
-                <input type="password" value={polyKey} onChange={e=>setPolyKey(e.target.value)}
-                  placeholder="https://polygon.io" className="side-input"/>
-                <button onClick={()=>{if(polyKey.trim()){saveKey({POLYGON_API_KEY:polyKey.trim()});setPolyKey("");}}}
-                  className="side-add-btn">✓</button>
-              </div>
-            </div>
-            <div>
-              <div style={{fontSize:9,color:"#444",letterSpacing:"0.08em",marginBottom:4}}>TRADIER TOKEN</div>
-              <div style={{display:"flex",gap:4}}>
-                <input type="password" value={tradierKey} onChange={e=>setTradierKey(e.target.value)}
-                  placeholder="developer.tradier.com" className="side-input"/>
-                <button onClick={()=>{if(tradierKey.trim()){saveKey({TRADIER_TOKEN:tradierKey.trim()});setTradierKey("");}}}
-                  className="side-add-btn">✓</button>
-              </div>
-            </div>
-            {keyMsg&&<div style={{fontSize:10,color:"#00e5a0"}}>{keyMsg}</div>}
-          </div>
-        </SideSection>
-
-        {/* ── PORTFOLIO IMPORT ── */}
-        <SideSection label="PORTFOLIO IMPORT" open={sections.import} onToggle={()=>toggle("import")}>
-          <div style={{padding:"8px 12px",display:"flex",flexDirection:"column",gap:8}}>
-            <label style={{display:"flex",flexDirection:"column",alignItems:"center",
-              border:"1px dashed var(--border2)",padding:"12px 8px",cursor:"pointer",
-              fontSize:10,color:"#555",gap:4,transition:"all 0.15s",textAlign:"center"}}
-              onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--green)";e.currentTarget.style.color="var(--green)";}}
-              onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border2)";e.currentTarget.style.color="#555";}}>
-              <span style={{fontSize:16}}>↑</span>
-              <span>Robinhood CSV or positions.json</span>
-              <input type="file" accept=".csv,.json" onChange={handleFile} style={{display:"none"}}/>
-            </label>
-            {importMsg&&<div style={{fontSize:10,color:"#00e5a0"}}>{importMsg}</div>}
-            {positions.length>0&&(
-              <>
-                <div style={{fontSize:10,color:"#555"}}>{positions.length} position{positions.length!==1?"s":""} ready</div>
-                <button onClick={savePortfolio} className="side-add-btn" style={{width:"100%",padding:"5px",fontSize:10}}>
-                  SAVE TO PORTFOLIO
-                </button>
-                {saveMsg&&<div style={{fontSize:10,color:"#00e5a0"}}>{saveMsg}</div>}
-              </>
-            )}
-          </div>
-        </SideSection>
-
-        {/* ── BROKERS ── */}
-        <SideSection label="BROKERS" open={sections.brokers} onToggle={()=>toggle("brokers")}>
-          <div style={{padding:"8px 12px",display:"flex",flexDirection:"column",gap:6}}>
-            <div style={{fontSize:10,color:"#444",lineHeight:1.6}}>
-              Robinhood has no official API. Export from Account → Statements → CSV.
-            </div>
-            {[["Tastytrade","https://www.tastytrade.com/api"],
-              ["Alpaca","https://alpaca.markets"],
-              ["IBKR","https://www.interactivebrokers.com/en/trading/ib-api.php"],
-              ["Schwab/TDA","https://developer.schwab.com"]
-            ].map(([name,url])=>(
-              <a key={name} href={url} target="_blank"
-                style={{display:"flex",justifyContent:"space-between",alignItems:"center",
-                  fontSize:10,color:"#555",textDecoration:"none",padding:"4px 0",
-                  borderBottom:"1px solid var(--border)",transition:"color 0.15s"}}
-                onMouseEnter={e=>e.currentTarget.style.color="#4da8ff"}
-                onMouseLeave={e=>e.currentTarget.style.color="#555"}>
-                {name}<span style={{fontSize:9}}>↗</span>
-              </a>
-            ))}
-          </div>
-        </SideSection>
-
-        {/* ── SETTINGS ── */}
+        {/* ── SETTINGS (contains API keys, portfolio import, brokers, display) ── */}
         <SideSection label="SETTINGS" open={sections.settings} onToggle={()=>toggle("settings")}>
-          <div style={{padding:"8px 12px",display:"flex",flexDirection:"column",gap:10}}>
+
+          {/* Display */}
+          <div style={{padding:"8px 14px 4px",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
+            <div style={{fontSize:9,color:"#444",letterSpacing:"0.12em",marginBottom:8}}>DISPLAY</div>
             {[["Chain rows",settings.chainRows,[10,20,30,50],"chainRows"],
               ["Auto-refresh",settings.autoRefresh,["on","off"],"autoRefresh"]
             ].map(([label,val,opts,key])=>(
-              <div key={key} style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+              <div key={key} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
                 <span style={{fontSize:10,color:"#555"}}>{label}</span>
                 <div style={{display:"flex",gap:2}}>
                   {opts.map(o=>(
@@ -766,6 +697,86 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
               </div>
             ))}
           </div>
+
+          {/* API Keys sub-section */}
+          <SideSection label="API KEYS" open={sections.settings_keys} onToggle={()=>toggle("settings_keys")} indent>
+            <div style={{padding:"6px 14px",display:"flex",flexDirection:"column",gap:8}}>
+              {Object.entries(envData).map(([k,v])=>(
+                <div key={k} style={{display:"flex",justifyContent:"space-between",fontSize:10}}>
+                  <span style={{color:"#4da8ff"}}>{k}</span>
+                  <span style={{color:v?"#00e5a0":"#333",fontSize:9}}>{v?"● SET":"○ NOT SET"}</span>
+                </div>
+              ))}
+              <div>
+                <div style={{fontSize:9,color:"#444",marginBottom:3}}>POLYGON KEY</div>
+                <div style={{display:"flex",gap:4}}>
+                  <input type="password" value={polyKey} onChange={e=>setPolyKey(e.target.value)}
+                    placeholder="polygon.io" className="side-input"/>
+                  <button onClick={()=>{if(polyKey.trim()){saveKey({POLYGON_API_KEY:polyKey.trim()});setPolyKey("");}}}
+                    className="side-add-btn">✓</button>
+                </div>
+              </div>
+              <div>
+                <div style={{fontSize:9,color:"#444",marginBottom:3}}>TRADIER TOKEN</div>
+                <div style={{display:"flex",gap:4}}>
+                  <input type="password" value={tradierKey} onChange={e=>setTradierKey(e.target.value)}
+                    placeholder="tradier.com" className="side-input"/>
+                  <button onClick={()=>{if(tradierKey.trim()){saveKey({TRADIER_TOKEN:tradierKey.trim()});setTradierKey("");}}}
+                    className="side-add-btn">✓</button>
+                </div>
+              </div>
+              {keyMsg&&<div style={{fontSize:10,color:"#00e5a0"}}>{keyMsg}</div>}
+            </div>
+          </SideSection>
+
+          {/* Portfolio Import sub-section */}
+          <SideSection label="PORTFOLIO IMPORT" open={sections.settings_import} onToggle={()=>toggle("settings_import")} indent>
+            <div style={{padding:"6px 14px",display:"flex",flexDirection:"column",gap:8}}>
+              <label style={{display:"flex",flexDirection:"column",alignItems:"center",
+                border:"1px dashed var(--border2)",padding:"10px 8px",cursor:"pointer",
+                fontSize:10,color:"#555",gap:3,transition:"all 0.15s",textAlign:"center"}}
+                onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--green)";e.currentTarget.style.color="var(--green)";}}
+                onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border2)";e.currentTarget.style.color="#555";}}>
+                <span style={{fontSize:14}}>↑</span>
+                <span>Robinhood CSV or positions.json</span>
+                <input type="file" accept=".csv,.json" onChange={handleFile} style={{display:"none"}}/>
+              </label>
+              {importMsg&&<div style={{fontSize:10,color:"#00e5a0"}}>{importMsg}</div>}
+              {positions.length>0&&(
+                <>
+                  <div style={{fontSize:10,color:"#555"}}>{positions.length} position{positions.length!==1?"s":""} ready</div>
+                  <button onClick={savePortfolio} className="side-add-btn" style={{width:"100%",padding:"5px",fontSize:10}}>
+                    SAVE TO PORTFOLIO
+                  </button>
+                  {saveMsg&&<div style={{fontSize:10,color:"#00e5a0"}}>{saveMsg}</div>}
+                </>
+              )}
+            </div>
+          </SideSection>
+
+          {/* Brokers sub-section */}
+          <SideSection label="BROKERS" open={sections.settings_brokers} onToggle={()=>toggle("settings_brokers")} indent>
+            <div style={{padding:"6px 14px",display:"flex",flexDirection:"column",gap:5}}>
+              <div style={{fontSize:10,color:"#444",lineHeight:1.5,marginBottom:2}}>
+                Robinhood: export via Account → Statements → CSV.
+              </div>
+              {[["Tastytrade","https://www.tastytrade.com/api"],
+                ["Alpaca","https://alpaca.markets"],
+                ["IBKR","https://www.interactivebrokers.com/en/trading/ib-api.php"],
+                ["Schwab","https://developer.schwab.com"]
+              ].map(([name,url])=>(
+                <a key={name} href={url} target="_blank"
+                  style={{display:"flex",justifyContent:"space-between",
+                    fontSize:10,color:"#555",textDecoration:"none",padding:"3px 0",
+                    borderBottom:"1px solid var(--border)",transition:"color 0.15s"}}
+                  onMouseEnter={e=>e.currentTarget.style.color="#4da8ff"}
+                  onMouseLeave={e=>e.currentTarget.style.color="#555"}>
+                  {name}<span style={{fontSize:9}}>↗</span>
+                </a>
+              ))}
+            </div>
+          </SideSection>
+
         </SideSection>
 
         {/* ── Always-visible footer: source ── */}
@@ -849,7 +860,8 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
   const src = activeTab?.chainData?.source;
 
   return (
-    <div style={{display:"flex",flexDirection:"column",flex:1,minWidth:0,overflow:"hidden"}}>
+    <div style={{display:"flex",flexDirection:"column",flex:1,minWidth:0,overflow:"hidden",
+      borderRight:"1px solid var(--border)"}}>
 
       {/* Pane header */}
       <div style={{display:"flex",alignItems:"center",gap:8,padding:"3px 10px",
@@ -1130,10 +1142,13 @@ export default function App() {
             recentTickers={recentTickers} fetchPortfolio={fetchPortfolio}/>
 
           {/* Pane container */}
-          <div id="pane-container" style={{display:"flex",flex:1,overflow:"hidden"}}>
+          <div id="pane-container" style={{display:"flex",flex:1,overflow:"hidden",position:"relative"}}>
 
-            <div style={{width:splitMode?`${splitPos}%`:"100%",display:"flex",flexDirection:"column",
-              overflow:"hidden",flexShrink:0,borderRight:splitMode?"none":"none"}}>
+            {/* Pane A — always visible */}
+            <div style={{
+              flex: splitMode ? `0 0 ${splitPos}%` : "1 1 100%",
+              display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0,
+            }}>
               <Pane tabs={tabsA} setTabs={setTabsA}
                 nextId={nextId} setNextId={setNextId}
                 liveSpots={liveSpots}
@@ -1144,11 +1159,14 @@ export default function App() {
 
             {splitMode&&(
               <>
+                {/* Draggable divider */}
                 <div onMouseDown={onSplitDrag}
-                  style={{width:4,background:"var(--border)",cursor:"col-resize",flexShrink:0}}
+                  style={{width:4,flexShrink:0,background:"var(--border)",
+                    cursor:"col-resize",transition:"background 0.15s",zIndex:10}}
                   onMouseEnter={e=>e.currentTarget.style.background="var(--green)"}
                   onMouseLeave={e=>e.currentTarget.style.background="var(--border)"}/>
-                <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+                {/* Pane B */}
+                <div style={{flex:"1 1 0",display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
                   <Pane tabs={tabsB} setTabs={setTabsB}
                     nextId={nextId} setNextId={setNextId}
                     liveSpots={liveSpots}

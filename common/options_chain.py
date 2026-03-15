@@ -8,6 +8,15 @@ from datetime import date, datetime
 from typing import Optional
 import yfinance as yf
 
+def _int(v):
+    """Convert to int safely — returns 0 for None, NaN, or non-numeric."""
+    try:
+        f = float(v)
+        return 0 if (f != f) else int(f)  # f != f is True only for NaN
+    except (TypeError, ValueError):
+        return 0
+
+
 
 def bs_price(S, K, T, r, sigma, opt_type="call") -> float:
     if T <= 0 or sigma <= 0:
@@ -113,7 +122,7 @@ def fetch_chain(ticker: str, expiry: Optional[str] = None, r: float = 0.053) -> 
 
     exp_date = datetime.strptime(expiry, "%Y-%m-%d").date()
     T = max((exp_date - date.today()).days, 0) / 365.0
-    dte = int(T * 365)
+    dte = _int(T * 365)
 
     ch    = tk.option_chain(expiry)
     rows  = []
@@ -127,8 +136,8 @@ def fetch_chain(ticker: str, expiry: Optional[str] = None, r: float = 0.053) -> 
             rows.append({
                 "type": opt_type, "strike": float(row["strike"]),
                 "bid": bid, "ask": ask, "mid": mid,
-                "volume": int(row.get("volume") or 0),
-                "OI": int(row.get("openInterest") or 0),
+                "volume": _int(row.get("volume")),
+                "OI": _int(row.get("openInterest")),
                 "iv": iv, "ITM": bool(row.get("inTheMoney", False)),
                 **g,
             })

@@ -9,7 +9,7 @@ import requests
 from typing import Optional
 from dotenv import load_dotenv
 from common.paths import ENV_FILE
-from common.options_chain import fetch_chain as _yf_chain, fetch_iv_history, generate_signals
+from common.options_chain import fetch_chain as _yf_chain, fetch_iv_history, generate_signals, _int
 
 POLYGON_BASE = "https://api.polygon.io"
 
@@ -167,7 +167,7 @@ def _fetch_chain_polygon(ticker: str, expiry: Optional[str] = None, r: float = 0
         g      = greeks(S, strike, T, r, iv or 0.25, otype)
         rows.append({
             "type": otype, "strike": strike, "bid": bid, "ask": ask, "mid": mid,
-            "volume": int(q.get("volume") or 0), "OI": int(opt.get("open_interest") or 0),
+            "volume": _int(q.get("volume")), "OI": _int(opt.get("open_interest")),
             "iv": iv, "ITM": (otype=="call" and strike<S) or (otype=="put" and strike>S),
             **g,
         })
