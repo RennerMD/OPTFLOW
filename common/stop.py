@@ -8,8 +8,7 @@ Run from the OPTFLOW folder:  python stop.py
 import os, sys, signal, subprocess, time, socket
 from pathlib import Path
 
-ROOT     = Path(__file__).parent.resolve()
-PID_FILE = ROOT / ".optflow.pid"
+from common.paths import ROOT, PID_FILE
 IS_WIN   = sys.platform == "win32"
 
 

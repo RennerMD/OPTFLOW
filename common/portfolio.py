@@ -9,9 +9,9 @@ import numpy as np
 from pathlib import Path
 from datetime import date, datetime
 from typing import Optional
-from options_chain import bs_price, greeks, implied_vol
+from common.options_chain import bs_price, greeks, implied_vol
 
-ROOT = Path(__file__).parent.resolve()
+from common.paths import POSITIONS_FILE
 
 SAMPLE = [
     {"ticker":"SPY","type":"call","strike":580.0,"expiry":"2025-06-20",
@@ -39,7 +39,7 @@ def _clean(pos: dict) -> dict:
 
 
 def load_portfolio(path: Optional[str] = None) -> list:
-    f = Path(path) if path else ROOT / "positions.json"
+    f = Path(path) if path else POSITIONS_FILE
     if not f.exists():
         return SAMPLE
     text = f.read_text().strip()

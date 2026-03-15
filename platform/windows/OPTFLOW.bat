@@ -96,7 +96,7 @@ timeout /t 1 /nobreak >nul
 :: ── Launch ─────────────────────────────────────────────────────
 echo  [INFO] Starting OPTFLOW...
 echo.
-%PYTHON% "%ROOT%\launch_windows.py"
+%PYTHON% "%ROOT%\run.py" launch_win
 
 echo.
 echo  OPTFLOW has stopped.

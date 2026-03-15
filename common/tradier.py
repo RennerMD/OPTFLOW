@@ -13,18 +13,19 @@ import pandas as pd
 from datetime import date, datetime
 from typing import Optional
 from dotenv import load_dotenv
-from options_chain import greeks, implied_vol, generate_signals, iv_rank
+from common.paths import ENV_FILE
+from common.options_chain import greeks, implied_vol, generate_signals, iv_rank
 
 BASE_LIVE    = "https://api.tradier.com"
 BASE_SANDBOX = "https://sandbox.tradier.com"
 
 
 def _token() -> str:
-    load_dotenv(override=True)
+    load_dotenv(str(ENV_FILE), override=True)
     return os.getenv("TRADIER_TOKEN", "").strip()
 
 def _base() -> str:
-    load_dotenv(override=True)
+    load_dotenv(str(ENV_FILE), override=True)
     return BASE_SANDBOX if os.getenv("TRADIER_SANDBOX","false").lower()=="true" else BASE_LIVE
 
 def _headers() -> dict:

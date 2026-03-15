@@ -3,11 +3,11 @@ from pathlib import Path
 import json
 
 router = APIRouter(prefix="/api/config")
-ROOT = Path(__file__).parent.resolve()
+from common.paths import ROOT, USER_DATA, ENV_FILE, POSITIONS_FILE
 
 
 def _read_env() -> dict:
-    f = ROOT / ".env"
+    f = ENV_FILE
     if not f.exists():
         return {}
     out = {}
@@ -27,13 +27,12 @@ async def get_env():
 async def set_env(payload: dict):
     data = _read_env()
     data.update(payload)
-    (ROOT / ".env").write_text("\n".join(f"{k}={v}" for k, v in data.items()) + "\n")
+    ENV_FILE.write_text("\n".join(f"{k}={v}" for k, v in data.items()) + "\n")
     return {"status": "saved", "keys": list(payload)}
 
 @router.get("/portfolio")
 async def get_portfolio_file():
-    f = ROOT / "positions.json"
-    return json.loads(f.read_text()) if f.exists() else []
+    return json.loads(POSITIONS_FILE.read_text()) if POSITIONS_FILE.exists() else []
 
 @router.post("/portfolio")
 async def save_portfolio_file(request: Request):
@@ -41,7 +40,7 @@ async def save_portfolio_file(request: Request):
         positions = await request.json()
         if not isinstance(positions, list):
             raise HTTPException(status_code=400, detail="Expected a JSON array")
-        (ROOT / "positions.json").write_text(json.dumps(positions, indent=2))
+        POSITIONS_FILE.write_text(json.dumps(positions, indent=2))
         return {"status": "saved", "count": len(positions)}
     except HTTPException:
         raise

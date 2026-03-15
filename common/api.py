@@ -14,12 +14,13 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Query, HTTPExceptio
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse, HTMLResponse, JSONResponse
 from dotenv import load_dotenv
+from common.paths import ENV_FILE
 
-from data_feeds import fetch_chain, fetch_spots_async, fetch_iv_history
-from portfolio import load_portfolio, portfolio_summary
-from config_routes import router as config_router
+from common.data_feeds import fetch_chain, fetch_spots_async, fetch_iv_history
+from common.portfolio import load_portfolio, portfolio_summary
+from common.config_routes import router as config_router
 
-ROOT  = Path(__file__).parent.resolve()
+from common.paths import ROOT, PID_FILE
 _pool = ThreadPoolExecutor(max_workers=20)
 
 app = FastAPI(title="OPTFLOW API")
@@ -197,7 +198,7 @@ _poly_cache: dict = {"active": None, "error": None, "at": 0.0}
 
 @app.get("/api/health")
 async def health():
-    load_dotenv(override=True)
+    load_dotenv(str(ENV_FILE), override=True)
     key = os.getenv("POLYGON_API_KEY", "").strip()
     global _poly_cache
 
@@ -222,10 +223,10 @@ async def health():
 
     tradier_active, tradier_error = False, None
     try:
-        from tradier import is_configured
+        from common.tradier import is_configured
         if is_configured():
             res = await asyncio.get_event_loop().run_in_executor(
-                _pool, lambda: __import__("tradier").verify_connection())
+                _pool, lambda: __import__('common.tradier',fromlist=['verify_connection']).verify_connection())
             tradier_active, tradier_error = res["ok"], res.get("error")
     except Exception as e:
         tradier_error = str(e)
@@ -273,7 +274,7 @@ async def shutdown():
     """
     async def _kill():
         await asyncio.sleep(0.8)   # enough for response to reach browser
-        pid_file = ROOT / ".optflow.pid"
+        pid_file = PID_FILE
         killed = False
         if pid_file.exists():
             try:
@@ -300,4 +301,4 @@ async def shutdown():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("api:app", host="127.0.0.1", port=8000)
+    uvicorn.run("main:app", host="127.0.0.1", port=8000)

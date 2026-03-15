@@ -16,11 +16,10 @@ Stop cleanly:
 import subprocess, sys, os, time, signal, threading, webbrowser, socket, importlib.util
 from pathlib import Path
 
-ROOT     = Path(__file__).parent.resolve()
-FRONTEND = ROOT / "frontend"
 API_PORT = 8000
 UI_PORT  = 5173
-PID_FILE = ROOT / ".optflow.pid"
+from common.paths import ROOT, PID_FILE
+FRONTEND = ROOT / "frontend"
 
 # Windows flag: keep process in its own group so Ctrl+Break can target it
 CREATE_NEW_PROCESS_GROUP = 0x00000200
@@ -194,7 +193,7 @@ def main():
     # Start API
     log("Starting API on :8000", "cyan")
     api = subprocess.Popen(
-        [python, "-m", "uvicorn", "api:app",
+        [python, "-m", "uvicorn", "run:app",
          "--host", "127.0.0.1", "--port", str(API_PORT), "--log-level", "warning"],
         cwd=ROOT,
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT,

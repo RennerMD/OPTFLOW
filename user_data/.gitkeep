@@ -1,0 +1,2 @@
+# This file keeps the user_data/ directory tracked by git.
+# The actual contents (.env, positions.json) are gitignored.

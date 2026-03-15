@@ -67,5 +67,6 @@ ehthumbs.db
 .coverage
 htmlcov/
 -e 
-# ── Personal / local scripts ──────────────────────────────────
+# ── Personal / local scripts (never committed) ─────────────────
 sync.sh
+verify.sh

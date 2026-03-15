@@ -8,13 +8,14 @@ import aiohttp
 import requests
 from typing import Optional
 from dotenv import load_dotenv
-from options_chain import fetch_chain as _yf_chain, fetch_iv_history, generate_signals
+from common.paths import ENV_FILE
+from common.options_chain import fetch_chain as _yf_chain, fetch_iv_history, generate_signals
 
 POLYGON_BASE = "https://api.polygon.io"
 
 
 def _polygon_key() -> str:
-    load_dotenv(override=True)
+    load_dotenv(str(ENV_FILE), override=True)
     return os.getenv("POLYGON_API_KEY", "").strip()
 
 def _polygon_headers() -> dict:

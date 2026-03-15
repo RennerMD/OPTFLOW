@@ -14,11 +14,10 @@ Stop cleanly:
 import subprocess, sys, os, time, signal, threading, webbrowser, socket
 from pathlib import Path
 
-ROOT     = Path(__file__).parent.resolve()
-FRONTEND = ROOT / "frontend"
 API_PORT = 8000
 UI_PORT  = 5173
-PID_FILE = ROOT / ".optflow.pid"
+from common.paths import ROOT, PID_FILE
+FRONTEND = ROOT / "frontend"
 
 procs = []
 
@@ -108,7 +107,7 @@ def check_deps():
 def start_api():
     log("Starting API on :8000", "cyan")
     p = subprocess.Popen(
-        ["python3", "-m", "uvicorn", "api:app",
+        ["python3", "-m", "uvicorn", "run:app",
          "--host", "127.0.0.1", "--port", str(API_PORT), "--log-level", "warning"],
         cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
         text=True, bufsize=1, preexec_fn=os.setsid,

@@ -25,4 +25,4 @@ done
 
 rm -f "$ROOT/.optflow.pid"
 
-python3 "$ROOT/launch.py"
+python3 "$ROOT/run.py" launch

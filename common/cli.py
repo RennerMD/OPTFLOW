@@ -18,8 +18,8 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 
-from data_feeds import fetch_chain, fetch_spots_async
-from portfolio import load_portfolio, portfolio_summary
+from common.data_feeds import fetch_chain, fetch_spots_async
+from common.portfolio import load_portfolio, portfolio_summary
 
 console = Console()
 
