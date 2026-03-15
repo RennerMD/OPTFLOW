@@ -1,0 +1,111 @@
+"""
+portfolio.py — load and evaluate options positions
+Position schema (JSON or CSV):
+  ticker, type, strike, expiry, contracts, entry_price, entry_date, direction
+"""
+import json, csv
+import pandas as pd
+import numpy as np
+from pathlib import Path
+from datetime import date, datetime
+from typing import Optional
+from options_chain import bs_price, greeks, implied_vol
+
+ROOT = Path(__file__).parent.resolve()
+
+SAMPLE = [
+    {"ticker":"SPY","type":"call","strike":580.0,"expiry":"2025-06-20",
+     "contracts":1,"entry_price":3.50,"entry_date":"2025-03-01","direction":"long"},
+    {"ticker":"QQQ","type":"put","strike":450.0,"expiry":"2025-05-16",
+     "contracts":2,"entry_price":4.20,"entry_date":"2025-03-05","direction":"long"},
+]
+
+# Fields we keep from imported rows; extras (e.g. Robinhood metadata) are stripped
+REQUIRED = {"ticker","type","strike","expiry","contracts","entry_price","entry_date","direction"}
+
+
+def _clean(pos: dict) -> dict:
+    """Strip unknown fields and coerce types."""
+    return {
+        "ticker":      str(pos.get("ticker","")).upper(),
+        "type":        str(pos.get("type","call")).lower(),
+        "strike":      float(pos.get("strike") or 0),
+        "expiry":      str(pos.get("expiry","") or ""),
+        "contracts":   max(1, int(float(pos.get("contracts") or 1))),
+        "entry_price": abs(float(pos.get("entry_price") or 0)),
+        "entry_date":  str(pos.get("entry_date","") or ""),
+        "direction":   str(pos.get("direction","long")).lower(),
+    }
+
+
+def load_portfolio(path: Optional[str] = None) -> list:
+    f = Path(path) if path else ROOT / "positions.json"
+    if not f.exists():
+        return SAMPLE
+    text = f.read_text().strip()
+    if not text:
+        return []
+    if f.suffix == ".json":
+        data = json.loads(text)
+    else:
+        reader = csv.DictReader(text.splitlines())
+        data = list(reader)
+    return [_clean(p) for p in data if p.get("ticker")]
+
+
+def evaluate_position(pos: dict, spot: float, iv: float = 0.25, r: float = 0.053) -> dict:
+    exp_date  = datetime.strptime(pos["expiry"], "%Y-%m-%d").date()
+    T         = max((exp_date - date.today()).days, 0) / 365.0
+    dte       = int(T * 365)
+    direction = 1 if pos["direction"] == "long" else -1
+    n         = pos["contracts"]
+
+    current_price = bs_price(spot, pos["strike"], T, r, iv, pos["type"])
+    entry_cost    = pos["entry_price"] * 100 * n
+    current_value = current_price * 100 * n
+    pnl           = (current_value - entry_cost) * direction
+    pnl_pct       = pnl / (entry_cost or 1) * 100
+    g             = greeks(spot, pos["strike"], T, r, iv, pos["type"])
+
+    signals = []
+    if pos["direction"] == "short" and pnl_pct >= 50:
+        signals.append("TARGET: 50% max profit reached — consider closing")
+    if pos["direction"] == "long" and pnl_pct <= -50:
+        signals.append("STOP: position down 50% — review")
+    if dte <= 21:
+        signals.append(f"DTE ALERT: {dte} days — theta acceleration")
+    elif dte <= 45:
+        signals.append(f"DTE WATCH: {dte} days — plan exit")
+
+    pos_delta = g["delta"] * direction
+    return {
+        **pos,
+        "spot":          spot,
+        "iv":            round(iv, 4),
+        "dte":           dte,
+        "mid":           round(current_price, 4),
+        "current_price": round(current_price, 4),
+        "entry_cost":    round(entry_cost, 2),
+        "current_value": round(current_value, 2),
+        "market_value":  round(current_value, 2),
+        "pnl":           round(pnl, 2),
+        "pnl_pct":       round(pnl_pct, 2),
+        "delta":         round(pos_delta, 4),
+        "net_delta":     round(pos_delta * 100 * n, 4),
+        "gamma":         round(g["gamma"], 6),
+        "theta":         round(g["theta"] * direction * 100 * n, 2),
+        "vega":          round(g["vega"]  * direction * 100 * n, 2),
+        "target_price":  round(pos["entry_price"] * 1.5, 4) if direction == 1 else None,
+        "stop_price":    round(pos["entry_price"] * 0.5, 4) if direction == 1 else None,
+        "signals":       signals,
+    }
+
+
+def portfolio_summary(positions: list, spot_map: dict, iv_map: dict) -> pd.DataFrame:
+    rows = []
+    for pos in positions:
+        spot = spot_map.get(pos["ticker"])
+        if spot is None:
+            continue
+        rows.append(evaluate_position(pos, spot, iv_map.get(pos["ticker"], 0.25)))
+    return pd.DataFrame(rows)
