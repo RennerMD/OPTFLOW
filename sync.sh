@@ -48,8 +48,18 @@ else
   fi
 fi
 
-# ── Commit and push ────────────────────────────────────────────
+# ── Commit ────────────────────────────────────────────────────
 git commit -m "$MSG"
+
+# ── Pull remote changes first (in case of divergence) ─────────
+git pull origin main --no-rebase --no-edit 2>/dev/null || {
+  echo "[WARN] Pull had conflicts — resolving by keeping local versions"
+  git checkout --ours .
+  git add -A
+  git commit -m "Merge: keep local on conflict"
+}
+
+# ── Push ───────────────────────────────────────────────────────
 git push origin main
 
 echo ""
