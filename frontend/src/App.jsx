@@ -1221,6 +1221,22 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
 
   const strikes = useMemo(()=>[...new Set(chain.map(c=>c.strike))].sort((a,b)=>a-b),[chain]);
 
+  // ── Clear legs when ticker changes ──────────────────────────────────────
+  const prevTicker = useRef(ticker);
+  useEffect(()=>{
+    if(!ticker || ticker===prevTicker.current) return;
+    prevTicker.current = ticker;
+    // Remove legs that belong to a different ticker
+    // Keep: theoretical legs (no ticker) — NO, clear all for clean slate
+    // Keep: real legs that match the new ticker
+    setLegs(prev=>{
+      const kept = prev.filter(l=>!l.ticker || l.ticker===ticker);
+      // If nothing survived, start empty
+      bumpVer();
+      return kept;
+    });
+  },[ticker]);
+
   // ── Sync seedLegs ─────────────────────────────────────────────────────────
   const prevSeed=useRef(seedLegs);
   useEffect(()=>{
@@ -2082,7 +2098,15 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,setLiveSpots,portData,
       const r=await fetch(`${API}/chain/${tkr}${exp?`?expiry=${exp}`:""}`);
       if(!r.ok) throw new Error((await r.json()).detail);
       const d=await r.json();
-      updateTab(id,{chainData:d,expiries:d.expiries||[],loading:false,expiry:exp||d.expiry});
+      // Also fetch enriched spot for AH pricing
+      let liveData=null;
+      try {
+        const sr=await fetch(`${API}/spot/${tkr}`);
+        if(sr.ok){ const sd=await sr.json(); liveData=sd; }
+      } catch{}
+      updateTab(id,{chainData:d,expiries:d.expiries||[],loading:false,
+                    expiry:exp||d.expiry,
+                    ...(liveData&&{livePrice:liveData.price,liveData})});
     } catch(e){ updateTab(id,{error:e.message,loading:false}); }
   },[updateTab]);
 
@@ -2317,9 +2341,13 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,setLiveSpots,portData,
                     {activeTab.chainData&&<span className="dte-badge">{activeTab.chainData.dte}d</span>}
                   </div>
                   <div style={{display:"flex",alignItems:"center",gap:8}}>
-                    <span className="section-label">IVR</span>
+                    <span className="section-label">IV RANK</span>
                     <IVGauge rank={activeTab.chainData.iv_rank}/>
                     <span className="muted" style={{fontSize:10}}>
+                      {fmt(activeTab.chainData.iv_rank,1)}
+                    </span>
+                    <span className="muted" style={{fontSize:9,color:"#555"}}>ATM IV</span>
+                    <span style={{fontSize:10,color:"#4da8ff"}}>
                       {fmtPct(activeTab.chainData.atm_iv)}
                     </span>
                   </div>
@@ -2533,10 +2561,11 @@ function AnalysisPane({tabs, activeTabId, liveSpots,
               ${fmt(livePrice)}
               {activeTab?.liveData&&spotIsAH(activeTab.liveData)&&(
                 <span style={{fontSize:9,marginLeft:6,
-                  color:spotAHPct(activeTab.liveData)>=0?"#00e5a0":"#ff4d6d"}}>
-                  AH {spotAHPct(activeTab.liveData)>=0?"+":""}{spotAHPct(activeTab.liveData).toFixed(2)}%
-                  <span style={{color:"#666",marginLeft:3}}>
-                    (close ${fmt(spotClose(activeTab.liveData))})
+                  color:spotAHPct(activeTab.liveData)>=0?"#00e5a0":"#ff4d6d",
+                  fontWeight:600}}>
+                  AH&nbsp;{spotAHPct(activeTab.liveData)>=0?"+":""}{spotAHPct(activeTab.liveData).toFixed(2)}%
+                  <span style={{color:"#666",fontWeight:400,marginLeft:4}}>
+                    close&nbsp;${fmt(spotClose(activeTab.liveData))}
                   </span>
                 </span>
               )}
@@ -2947,7 +2976,11 @@ export default function App() {
                 setLiveSpots={setLiveSpots}
                 pendingTicker={pendingTicker}
                 onPendingClear={()=>setPendingTicker(null)}
-                onActiveTicker={(tabId,ticker)=>{ setLeftActiveTabId(tabId); }}/>
+                onActiveTicker={(tabId,ticker)=>{
+                  // Clear builder seeds when ticker changes
+                  if(tabId!==leftActiveTabId) setLabLegsB([]);
+                  setLeftActiveTabId(tabId);
+                }}/>
             </div>
 
             {splitMode&&(
