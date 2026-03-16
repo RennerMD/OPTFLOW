@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React from "react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 
 const API = "http://127.0.0.1:8000/api";
@@ -448,373 +449,729 @@ function StrategyPanel({chainData, onLabOpen}) {
 }
 
 
-// ── Black-Scholes (client-side, no API calls needed) ──────────────────────────
 
-function normCDF(x) {
-  const a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911;
-  const sign = x<0 ? -1 : 1;
-  x = Math.abs(x)/Math.sqrt(2);
-  const t = 1/(1+p*x);
-  const y = 1-(((((a5*t+a4)*t)+a3)*t+a2)*t+a1)*t*Math.exp(-x*x);
-  return 0.5*(1+sign*y);
+// ── SliderRow — smooth custom slider with manual input ────────────────────────
+// Defined outside LabPanel so it is never remounted during lab state changes.
+
+function SliderRow({label, value, min, max, step, onChange, display}) {
+  const trackRef  = useRef(null);
+  const [editing, setEditing] = useState(false);
+  const [draft,   setDraft]   = useState("");
+
+  const xToValue = useCallback(clientX => {
+    const rect = trackRef.current?.getBoundingClientRect();
+    if (!rect) return value;
+    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width));
+    const steps = Math.round((ratio * (max - min)) / step);
+    return Math.min(max, Math.max(min, min + steps * step));
+  }, [min, max, step, value]);
+
+  const startDrag = useCallback(e => {
+    e.preventDefault();
+    onChange(xToValue(e.clientX));
+    const onMove = ev => onChange(xToValue(ev.clientX));
+    const onUp   = ()  => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup",   onUp);
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup",   onUp);
+  }, [xToValue, onChange]);
+
+  const pct = ((value - min) / (max - min)) * 100;
+
+  const commitEdit = () => {
+    const n = parseFloat(draft);
+    if (!isNaN(n)) onChange(Math.min(max, Math.max(min, n)));
+    setEditing(false);
+  };
+
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,userSelect:"none"}}>
+      <span style={{fontSize:9,color:"#444",letterSpacing:"0.08em",
+        width:82,flexShrink:0,whiteSpace:"nowrap"}}>{label}</span>
+      <div ref={trackRef} onMouseDown={startDrag}
+        style={{flex:1,height:18,position:"relative",cursor:"ew-resize",
+          display:"flex",alignItems:"center"}}>
+        <div style={{position:"absolute",left:0,right:0,height:3,
+          background:"var(--bg3)",border:"1px solid var(--border)"}}>
+          <div style={{position:"absolute",left:0,width:`${pct}%`,height:"100%",
+            background:"var(--green)"}}/>
+        </div>
+        <div style={{position:"absolute",left:`${pct}%`,transform:"translateX(-50%)",
+          width:12,height:12,borderRadius:"50%",background:"var(--green)",
+          border:"2px solid var(--bg)",boxShadow:"0 0 4px rgba(0,229,160,0.4)",
+          pointerEvents:"none"}}/>
+      </div>
+      {editing ? (
+        <input autoFocus value={draft}
+          onChange={e=>setDraft(e.target.value)}
+          onBlur={commitEdit}
+          onKeyDown={e=>{if(e.key==="Enter")commitEdit();if(e.key==="Escape")setEditing(false);}}
+          style={{width:80,background:"var(--bg2)",border:"1px solid var(--green)",
+            color:"#fff",fontFamily:"var(--mono)",fontSize:10,padding:"2px 6px",
+            textAlign:"right",outline:"none"}}/>
+      ) : (
+        <span onClick={()=>{setDraft(String(value));setEditing(true);}}
+          title="Click to edit"
+          style={{fontSize:10,color:"#ccc",width:80,textAlign:"right",flexShrink:0,
+            cursor:"text",borderBottom:"1px dashed #333"}}
+          onMouseEnter={e=>e.target.style.color="var(--green)"}
+          onMouseLeave={e=>e.target.style.color="#ccc"}>
+          {display}
+        </span>
+      )}
+    </div>
+  );
 }
-function normPDF(x){ return Math.exp(-0.5*x*x)/Math.sqrt(2*Math.PI); }
 
+// ── BS math ───────────────────────────────────────────────────────────────────
+function normCDF(x){const a1=0.254829592,a2=-0.284496736,a3=1.421413741,a4=-1.453152027,a5=1.061405429,p=0.3275911;const sign=x<0?-1:1;x=Math.abs(x)/Math.sqrt(2);const t=1/(1+p*x);const y=1-(((((a5*t+a4)*t)+a3)*t+a2)*t+a1)*t*Math.exp(-x*x);return 0.5*(1+sign*y);}
+function normPDF(x){return Math.exp(-0.5*x*x)/Math.sqrt(2*Math.PI);}
 function bsPrice(S,K,T,r,sigma,type){
-  if(T<=0||sigma<=0) return Math.max(0, type==="call"?S-K:K-S);
+  if(T<=0||sigma<=0) return Math.max(0,type==="call"?S-K:K-S);
   const d1=(Math.log(S/K)+(r+0.5*sigma*sigma)*T)/(sigma*Math.sqrt(T));
   const d2=d1-sigma*Math.sqrt(T);
-  if(type==="call") return S*normCDF(d1)-K*Math.exp(-r*T)*normCDF(d2);
-  return K*Math.exp(-r*T)*normCDF(-d2)-S*normCDF(-d1);
+  return type==="call"?S*normCDF(d1)-K*Math.exp(-r*T)*normCDF(d2):K*Math.exp(-r*T)*normCDF(-d2)-S*normCDF(-d1);
 }
-
 function bsGreeks(S,K,T,r,sigma,type){
-  if(T<=0||sigma<=0) return {delta:type==="call"&&S>K?1:0,gamma:0,theta:0,vega:0,rho:0};
+  if(T<=0||sigma<=0) return {delta:type==="call"&&S>K?1:0,gamma:0,theta:0,vega:0};
   const sqT=Math.sqrt(T);
   const d1=(Math.log(S/K)+(r+0.5*sigma*sigma)*T)/(sigma*sqT);
   const d2=d1-sigma*sqT;
   const pdf=normPDF(d1);
-  const gamma=pdf/(S*sigma*sqT);
-  const vega=S*pdf*sqT/100;
-  if(type==="call"){
-    return {
-      delta:normCDF(d1),gamma,vega,
-      theta:(-S*pdf*sigma/(2*sqT)-r*K*Math.exp(-r*T)*normCDF(d2))/365,
-      rho:K*T*Math.exp(-r*T)*normCDF(d2)/100
-    };
-  }
-  return {
-    delta:normCDF(d1)-1,gamma,vega,
-    theta:(-S*pdf*sigma/(2*sqT)+r*K*Math.exp(-r*T)*normCDF(-d2))/365,
-    rho:-K*T*Math.exp(-r*T)*normCDF(-d2)/100
-  };
+  const gamma=pdf/(S*sigma*sqT), vega=S*pdf*sqT/100;
+  if(type==="call") return {delta:normCDF(d1),gamma,vega,theta:(-S*pdf*sigma/(2*sqT)-r*K*Math.exp(-r*T)*normCDF(d2))/365};
+  return {delta:normCDF(d1)-1,gamma,vega,theta:(-S*pdf*sigma/(2*sqT)+r*K*Math.exp(-r*T)*normCDF(-d2))/365};
 }
-
-// Build payoff data for a set of legs at a given DTE fraction
 function calcPayoff(legs, spotRange, dteRatio, r=0.04){
   return spotRange.map(S=>{
-    let total=0, totalAtExpiry=0;
+    let pnl=0, expiry=0;
     legs.forEach(leg=>{
-      const sign = leg.dir==="long"?1:-1;
-      const T    = Math.max(0, leg.dte * dteRatio / 365);
-      const Texp = 0;
-      const pNow = bsPrice(S, leg.strike, T, r, leg.iv, leg.type);
-      const pExp = bsPrice(S, leg.strike, Texp, r, leg.iv, leg.type);
-      total         += sign*(pNow - leg.entry)*100*leg.qty;
-      totalAtExpiry += sign*(pExp - leg.entry)*100*leg.qty;
+      // closing=true means we model selling this position (flip sign for exit P&L)
+      const baseSign = leg.dir==="long"?1:-1;
+      const sign     = leg.closing ? -baseSign : baseSign;
+      const T = Math.max(0, leg.dte*dteRatio/365);
+      // For a closing trade: P&L = proceeds from sale minus original cost
+      // entry price is what we originally paid; current price is what we receive
+      const curPrice  = bsPrice(S,leg.strike,T,r,leg.iv,leg.type);
+      const expPrice  = bsPrice(S,leg.strike,0,r,leg.iv,leg.type);
+      if(leg.closing){
+        // Realized: receive current market value, gave up entry cost
+        // At "expiry" of this analysis: receive intrinsic value at that spot
+        pnl    += (curPrice  - leg.entry) * (-baseSign) * 100 * leg.qty;
+        expiry += (expPrice  - leg.entry) * (-baseSign) * 100 * leg.qty;
+      } else {
+        pnl    += sign*(curPrice  - leg.entry)*100*leg.qty;
+        expiry += sign*(expPrice  - leg.entry)*100*leg.qty;
+      }
     });
-    return {S:parseFloat(S.toFixed(2)), pnl:parseFloat(total.toFixed(2)), expiry:parseFloat(totalAtExpiry.toFixed(2))};
+    return {S:parseFloat(S.toFixed(2)),pnl:parseFloat(pnl.toFixed(2)),expiry:parseFloat(expiry.toFixed(2))};
   });
 }
 
 const LEG_COLORS = ["#00e5a0","#4da8ff","#f5a623","#ff4d6d","#9b6dff","#00bcd4"];
 
-function LabPanel({chainData, seedLegs, onClose}){
-  const spot0 = chainData?.spot || 100;
-  const dte0  = chainData?.dte  || 30;
-  const r     = chainData?.risk_free || 0.04;
-  const chain = chainData?.chain || [];
+// ── LegRow — top-level so React never remounts on lab state change ─────────────
+function LegRow({leg, idx, editable, onRemove, onUpdate, pnl=0,
+                 strikes=[], chain=[], expiries=[], onToggleClose}) {
+  const isClosing = leg.closing || false;
+  const color = leg.real
+    ? (isClosing ? "#f5a623" : leg.dir==="long" ? "#00e5a0" : "#ff4d6d")
+    : LEG_COLORS[idx%LEG_COLORS.length];
+  const rgbMap={"#00e5a0":"0,229,160","#4da8ff":"77,168,255","#f5a623":"245,166,35",
+                "#ff4d6d":"255,77,109","#9b6dff":"155,109,255"};
+  const rgb=rgbMap[color]||"0,229,160";
+  const upd=(patch)=>onUpdate&&onUpdate(leg.id,patch);
 
-  // Leg state — each: {id,type,dir,strike,iv,qty,dte,entry}
-  const [legs,setLegs] = useState(()=>{
-    if(seedLegs&&seedLegs.length) return seedLegs;
-    // Default: ATM call
-    const calls = chain.filter(c=>c.type==="call").sort((a,b)=>Math.abs(a.strike-spot0)-Math.abs(b.strike-spot0));
-    const atm   = calls[0];
-    return atm ? [{id:1,type:"call",dir:"long",strike:atm.strike,iv:atm.iv||0.25,qty:1,dte:dte0,entry:atm.mid||atm.ask||0}] : [];
-  });
-  const [nextLegId,setNextLegId] = useState(10);
-
-  // Sliders
-  const [spotAdj,setSpotAdj] = useState(0);         // % adjustment from spot0
-  const [dteAdj,setDteAdj]   = useState(100);        // % of original DTE remaining
-  const [ivShift,setIvShift] = useState(0);          // additive IV shift in decimal
-  const [contracts,setContracts] = useState(1);
-  const [chartMode,setChartMode] = useState("simple"); // "simple" | "multi"
-
-  const spot = spot0*(1+spotAdj/100);
-
-  // Available strikes from chain
-  const strikes = [...new Set(chain.map(r=>r.strike))].sort((a,b)=>a-b);
-  const expiries = chainData?.expiries || [];
-
-  const updateLeg = (id,patch) => setLegs(prev=>prev.map(l=>l.id===id?{...l,...patch}:l));
-  const removeLeg = id => setLegs(prev=>prev.filter(l=>l.id!==id));
-  const addLeg = () => {
-    const atm = strikes.reduce((a,b)=>Math.abs(a-spot)<Math.abs(b-spot)?a:b, strikes[0]||spot0);
-    const row = chain.find(c=>c.strike===atm&&c.type==="call");
-    setLegs(prev=>[...prev,{id:nextLegId,type:"call",dir:"long",strike:atm,
-      iv:row?.iv||0.25,qty:1,dte:dte0,entry:row?.mid||0}]);
-    setNextLegId(n=>n+1);
+  // Compute DTE from expiry string
+  const dteFromExpiry = exp => {
+    if(!exp) return leg.dte||30;
+    const diff = Math.round((new Date(exp)-new Date())/(1000*60*60*24));
+    return Math.max(0,diff);
   };
 
-  // Payoff chart data
-  const lo = spot0*0.75, hi = spot0*1.25;
-  const N  = 80;
-  const spotRange = Array.from({length:N},(_,i)=>lo+(hi-lo)*i/(N-1));
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",
+      padding:"6px 10px",background:"var(--bg1)",
+      border:`1px solid rgba(${rgb},0.18)`,
+      borderLeft:`3px solid ${color}`,
+      opacity:isClosing?0.7:1}}>
 
-  const effectiveLegs = legs.map(l=>({...l, iv:Math.max(0.01,(l.iv||0.25)+ivShift), qty:l.qty*contracts}));
-  const payoffData    = calcPayoff(effectiveLegs, spotRange, dteAdj/100, r);
+      {/* Real/Close badge */}
+      {leg.real&&(
+        <span style={{fontSize:8,padding:"1px 5px",letterSpacing:"0.06em",flexShrink:0,
+          background:isClosing?"rgba(245,166,35,0.12)":"rgba(0,229,160,0.12)",
+          color:isClosing?"#f5a623":"#00e5a0"}}>
+          {isClosing?"CLOSING":leg.ticker||"REAL"}
+        </span>
+      )}
 
-  // Greeks at current spot
-  const netGreeks = effectiveLegs.reduce((acc,l)=>{
-    const sign = l.dir==="long"?1:-1;
-    const T    = Math.max(0.001, l.dte*(dteAdj/100)/365);
-    const g    = bsGreeks(spot, l.strike, T, r, l.iv||0.25, l.type);
-    const mult = sign*100*l.qty;
+      {editable ? (<>
+        {/* Type */}
+        <select value={leg.type} onChange={e=>upd({type:e.target.value})}
+          className="expiry-select" style={{width:56}}>
+          <option value="call">CALL</option><option value="put">PUT</option>
+        </select>
+        {/* Direction */}
+        <select value={leg.dir} onChange={e=>upd({dir:e.target.value})}
+          className="expiry-select" style={{width:62}}>
+          <option value="long">LONG</option><option value="short">SHORT</option>
+        </select>
+        {/* Strike */}
+        <select value={leg.strike}
+          onChange={e=>{const k=Number(e.target.value);
+            upd({strike:k,entry:chain.find(c=>c.strike===k&&c.type===leg.type)?.mid||leg.entry});}}
+          className="expiry-select" style={{width:76}}>
+          {strikes.map(k=><option key={k} value={k}>${k}</option>)}
+        </select>
+        {/* Expiry dropdown */}
+        {expiries.length>0&&(
+          <select value={leg.expiry||""}
+            onChange={e=>{const exp=e.target.value; upd({expiry:exp,dte:dteFromExpiry(exp)});}}
+            className="expiry-select" style={{width:90,color:leg.expiry?"#ccc":"#555"}}>
+            <option value="">-- expiry --</option>
+            {expiries.map(e=><option key={e} value={e}>{e}</option>)}
+          </select>
+        )}
+        {/* Manual DTE override */}
+        <div style={{display:"flex",alignItems:"center",gap:3}}>
+          <span style={{fontSize:9,color:"#444"}}>DTE</span>
+          <input type="number" min={0} max={1000} value={leg.dte||30}
+            onChange={e=>upd({dte:Math.max(0,parseInt(e.target.value)||0),expiry:""})}
+            style={{width:40,background:"var(--bg2)",border:"1px solid var(--border2)",
+              color:"#ccc",fontFamily:"var(--mono)",fontSize:10,padding:"2px 6px",textAlign:"right"}}/>
+        </div>
+        {/* IV */}
+        <div style={{display:"flex",alignItems:"center",gap:3}}>
+          <span style={{fontSize:9,color:"#444"}}>IV</span>
+          <input type="number" value={((leg.iv||0.25)*100).toFixed(1)}
+            onChange={e=>upd({iv:Math.max(0.01,Number(e.target.value)/100)})}
+            style={{width:46,background:"var(--bg2)",border:"1px solid var(--border2)",
+              color:"#ccc",fontFamily:"var(--mono)",fontSize:10,padding:"2px 6px",textAlign:"right"}}/>
+          <span style={{fontSize:9,color:"#444"}}>%</span>
+        </div>
+        {/* QTY */}
+        <div style={{display:"flex",alignItems:"center",gap:3}}>
+          <span style={{fontSize:9,color:"#444"}}>QTY</span>
+          <input type="number" min={1} max={100} value={leg.qty}
+            onChange={e=>upd({qty:Math.max(1,parseInt(e.target.value)||1)})}
+            style={{width:36,background:"var(--bg2)",border:"1px solid var(--border2)",
+              color:"#ccc",fontFamily:"var(--mono)",fontSize:10,padding:"2px 6px",textAlign:"right"}}/>
+        </div>
+        {/* Entry */}
+        <div style={{display:"flex",alignItems:"center",gap:3}}>
+          <span style={{fontSize:9,color:"#444"}}>ENTRY</span>
+          <input type="number" step={0.01} value={(leg.entry||0).toFixed(2)}
+            onChange={e=>upd({entry:Math.max(0,Number(e.target.value))})}
+            style={{width:50,background:"var(--bg2)",border:"1px solid var(--border2)",
+              color:"#ccc",fontFamily:"var(--mono)",fontSize:10,padding:"2px 6px",textAlign:"right"}}/>
+        </div>
+      </>) : (<>
+        {/* Read-only real leg */}
+        <span style={{fontSize:10,color:"#fff",fontWeight:700,
+          textDecoration:isClosing?"line-through":"none"}}>
+          {leg.dir.toUpperCase()} {leg.type.toUpperCase()}
+        </span>
+        <span style={{fontSize:10,color:"#555"}}>${fmt(leg.strike)}</span>
+        <span style={{fontSize:9,color:"#444"}}>{leg.expiry||`${leg.dte}d`}</span>
+        <span style={{fontSize:9,color:"#555"}}>{leg.qty}×</span>
+        <span style={{fontSize:9,color:"#555"}}>entry ${fmt(leg.entry||0,2)}</span>
+      </>)}
+
+      {/* P&L */}
+      <span style={{marginLeft:"auto",fontSize:11,fontWeight:700,color:isClosing?"#f5a623":pnlColor(pnl)}}>
+        {isClosing?"CLOSE ":""}{pnl>=0?"+":""}{fmtUSD(pnl)}
+      </span>
+
+      {/* Close toggle (real legs only) */}
+      {leg.real&&onToggleClose&&(
+        <button onClick={()=>onToggleClose(leg.id)}
+          title={isClosing?"Restore position":"Model as closing trade"}
+          style={{background:isClosing?"rgba(245,166,35,0.15)":"none",
+            border:`1px solid ${isClosing?"#f5a623":"#333"}`,
+            color:isClosing?"#f5a623":"#444",fontFamily:"var(--mono)",
+            fontSize:8,padding:"1px 6px",cursor:"pointer",transition:"all 0.15s",
+            letterSpacing:"0.06em",flexShrink:0}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor="#f5a623";e.currentTarget.style.color="#f5a623";}}
+          onMouseLeave={e=>{if(!isClosing){e.currentTarget.style.borderColor="#333";e.currentTarget.style.color="#444";}}}>
+          {isClosing?"RESTORE":"CLOSE?"}
+        </button>
+      )}
+
+      {/* Remove */}
+      {onRemove&&<button onClick={()=>onRemove(leg.id)}
+        style={{background:"none",border:"none",color:"#333",cursor:"pointer",fontSize:14,
+          padding:0,fontFamily:"var(--mono)",transition:"color 0.15s"}}
+        onMouseEnter={e=>e.target.style.color="var(--red)"}
+        onMouseLeave={e=>e.target.style.color="#333"}>×</button>}
+    </div>
+  );
+}
+
+// ── PayoffChart — React.memo prevents remount on unrelated state changes ────────
+const PayoffChart = React.memo(function PayoffChart({data,legs,chartMode,lo,hi,yDom,r}){
+  return (
+    <ResponsiveContainer width="100%" height={190}>
+      <LineChart data={data} margin={{top:4,right:8,bottom:4,left:48}}>
+        <XAxis dataKey="S" type="number" domain={[lo,hi]}
+          tickFormatter={v=>`$${v.toFixed(0)}`}
+          tick={{fontSize:9,fill:"#444"}} tickLine={false} axisLine={false}/>
+        <YAxis domain={yDom}
+          tickFormatter={v=>v>=0?`+$${v.toFixed(0)}`:`-$${Math.abs(v).toFixed(0)}`}
+          tick={{fontSize:9,fill:"#444"}} tickLine={false} axisLine={false} width={46}/>
+        <Tooltip contentStyle={{background:"#111",border:"1px solid #232323",fontSize:10}}
+          formatter={(v,n)=>[`${v>=0?"+":""}$${v.toFixed(2)}`,n]}
+          labelFormatter={v=>`$${Number(v).toFixed(2)}`}/>
+        <Line type="monotone" dataKey={()=>0} stroke="#1e1e1e" strokeWidth={1}
+          dot={false} legendType="none" tooltipType="none"/>
+        {chartMode==="simple"&&<>
+          <Line type="monotone" dataKey="expiry" stroke="#00e5a0" strokeWidth={2} dot={false} name="At Expiry"/>
+          <Line type="monotone" dataKey="pnl" stroke="#4da8ff" strokeWidth={1.5} dot={false} strokeDasharray="4 3" name="Now"/>
+        </>}
+        {chartMode==="multi"&&legs.map((leg,i)=>{
+          const sign=leg.dir==="long"?1:-1;
+          const c=leg.real?(leg.dir==="long"?"#00e5a0":"#ff4d6d"):LEG_COLORS[i%LEG_COLORS.length];
+          return <Line key={leg.id} type="monotone"
+            dataKey={d=>sign*(bsPrice(d.S,leg.strike,0,r,(leg.iv||0.25),leg.type)-leg.entry)*100*leg.qty}
+            stroke={c} strokeWidth={1.5} dot={false} strokeDasharray={leg.real?undefined:"4 3"}
+            name={`${leg.real?leg.ticker||"REAL":"THEO"} ${leg.dir} ${leg.type} $${leg.strike}`}/>;
+        })}
+        {chartMode==="multi"&&<Line type="monotone" dataKey="expiry" stroke="#fff" strokeWidth={2.5} dot={false} name="Combined"/>}
+      </LineChart>
+    </ResponsiveContainer>
+  );
+});
+
+// ── LabPanel ───────────────────────────────────────────────────────────────────
+function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[]}) {
+  const spot0    = chainData?.spot       || 100;
+  const dte0     = chainData?.dte        || 30;
+  const r        = chainData?.risk_free  || 0.04;
+  const chain    = chainData?.chain      || [];
+  const expiries = chainExpiries.length ? chainExpiries : (chainData?.expiries||[]);
+
+  // ── State ────────────────────────────────────────────────────────────────
+  const [labView,  setLabView]  = useState("theoretical");
+  const [chartMode,setChartMode]= useState("simple");
+  const [filterTicker, setFilterTicker] = useState(true);
+
+  // Theoretical legs
+  const [legs, setLegs] = useState(()=>{
+    if(seedLegs&&seedLegs.length) return seedLegs;
+    const atm = chain.filter(c=>c.type==="call")
+      .sort((a,b)=>Math.abs(a.strike-spot0)-Math.abs(b.strike-spot0))[0];
+    return atm?[{id:1,type:"call",dir:"long",strike:atm.strike,iv:atm.iv||0.25,
+                  qty:1,dte:dte0,expiry:"",entry:atm.mid||atm.ask||0,real:false}]:[];
+  });
+  const [nextLegId, setNextLegId] = useState(10);
+  // Version counter replaces JSON.stringify in deps
+  const [legVer, setLegVer] = useState(0);
+  const bumpLegVer = () => setLegVer(v=>v+1);
+
+  // Real legs added to combined view
+  const [combinedRealLegs, setCombinedRealLegs] = useState([]);
+
+  // Scenario sliders
+  // spotAdj: % offset from spot0
+  // dteRemaining: absolute days remaining (integer, ≤ max leg DTE)
+  // ivShift: additive decimal shift on all IVs
+  const [spotAdj,       setSpotAdj]       = useState(0);
+  const maxDTE = useMemo(()=>Math.max(dte0, ...legs.map(l=>l.dte||0), ...combinedRealLegs.map(l=>l.dte||0)), [legs, combinedRealLegs, dte0]);
+  const [dteRemaining,  setDteRemaining]  = useState(()=>dte0);
+  const [ivShift,       setIvShift]       = useState(0);
+
+  const spot   = spot0*(1+spotAdj/100);
+  const ticker = chainData?.ticker||"";
+  const strikes = useMemo(()=>[...new Set(chain.map(c=>c.strike))].sort((a,b)=>a-b), [chain]);
+
+  // Sync external seedLegs
+  const prevSeed = useRef(seedLegs);
+  useEffect(()=>{
+    if(seedLegs&&seedLegs!==prevSeed.current&&seedLegs.length){
+      setLegs(seedLegs); prevSeed.current=seedLegs;
+      setLabView("theoretical"); bumpLegVer();
+    }
+  },[seedLegs]);
+
+  // Reset dteRemaining when chain changes
+  useEffect(()=>{ setDteRemaining(dte0); },[dte0]);
+
+  // ── Leg mutation helpers ──────────────────────────────────────────────────
+  const updateLeg = useCallback((id,patch)=>{
+    setLegs(p=>p.map(l=>l.id===id?{...l,...patch}:l));
+    bumpLegVer();
+  },[]);
+  const removeLeg = id=>{setLegs(p=>p.filter(l=>l.id!==id)); bumpLegVer();};
+  const addLeg = ()=>{
+    const atm=strikes.length?strikes.reduce((a,b)=>Math.abs(a-spot)<Math.abs(b-spot)?a:b):spot0;
+    const row=chain.find(c=>c.strike===atm&&c.type==="call");
+    setLegs(p=>[...p,{id:nextLegId,type:"call",dir:"long",strike:atm,
+      iv:row?.iv||0.25,qty:1,dte:dte0,expiry:"",entry:row?.mid||0,real:false}]);
+    setNextLegId(n=>n+1); bumpLegVer();
+  };
+
+  // ── Real position helpers ─────────────────────────────────────────────────
+  const allPositions = portData?.positions||[];
+  const posToLeg=(p,id)=>({id,real:true,type:p.type||"call",dir:p.direction||"long",
+    strike:parseFloat(p.strike)||0, iv:parseFloat(p.iv)||0.25,
+    qty:parseInt(p.contracts)||1,  dte:parseInt(p.dte)||dte0,
+    expiry:p.expiry||"",           entry:parseFloat(p.entry_price)||0,
+    ticker:p.ticker,               closing:false});
+
+  const addToCombined=p=>{
+    setCombinedRealLegs(prev=>{
+      if(prev.find(l=>l.ticker===p.ticker&&l.strike===parseFloat(p.strike)&&l.type===p.type)) return prev;
+      return [...prev,posToLeg(p,200+prev.length)];
+    });
+    setLabView("combined");
+  };
+  const toggleClose = id=>setCombinedRealLegs(prev=>prev.map(l=>l.id===id?{...l,closing:!l.closing}:l));
+  const exitAll     = ()=>setCombinedRealLegs(prev=>prev.map(l=>({...l,closing:true})));
+  const restoreAll  = ()=>setCombinedRealLegs(prev=>prev.map(l=>({...l,closing:false})));
+
+  // ── IV application ────────────────────────────────────────────────────────
+  const applyIV = ls=>ls.map(l=>({...l,iv:Math.max(0.01,(l.iv||0.25)+ivShift)}));
+
+  // Apply DTE cap: each leg's effective DTE = min(leg.dte, dteRemaining)
+  const applyDTE = ls=>ls.map(l=>({...l,dte:Math.min(l.dte||dte0, dteRemaining)}));
+
+  const theoreticalLegs = useMemo(()=>applyIV(applyDTE(legs)),          [legVer,ivShift,dteRemaining]);
+  const filteredReal    = useMemo(()=>filterTicker
+    ? combinedRealLegs.filter(l=>l.ticker===ticker)
+    : combinedRealLegs,                                                  [combinedRealLegs,filterTicker,ticker]);
+  const realLegs        = useMemo(()=>applyIV(applyDTE(filteredReal)),   [filteredReal,ivShift,dteRemaining]);
+  const combinedLegs    = useMemo(()=>[...realLegs,...theoreticalLegs],  [realLegs,theoreticalLegs]);
+
+  const activeLegSet = labView==="positions"?realLegs
+                     : labView==="theoretical"?theoreticalLegs
+                     : combinedLegs;
+
+  // ── Payoff ────────────────────────────────────────────────────────────────
+  const lo=spot0*0.75, hi=spot0*1.25, N=80;
+  const spotRange = useMemo(()=>Array.from({length:N},(_,i)=>lo+(hi-lo)*i/(N-1)),[lo,hi]);
+  // dteRatio for chart = 1.0 (legs already have DTE applied via applyDTE)
+  const payoffData = useMemo(
+    ()=>calcPayoff(activeLegSet, spotRange, 1.0, r),
+    [legVer, ivShift, dteRemaining, spotAdj, filterTicker, labView]
+  );
+
+  // ── Greeks ────────────────────────────────────────────────────────────────
+  const netGreeks = useMemo(()=>activeLegSet.reduce((acc,l)=>{
+    const sign=l.closing?-(l.dir==="long"?1:-1):(l.dir==="long"?1:-1);
+    const T=Math.max(0.001,l.dte/365);
+    const g=bsGreeks(spot,l.strike,T,r,l.iv||0.25,l.type);
+    const m=sign*100*l.qty;
     return {
-      delta: acc.delta+g.delta*mult,
-      gamma: acc.gamma+g.gamma*mult,
-      theta: acc.theta+g.theta*mult,
-      vega:  acc.vega+g.vega*mult,
-      value: acc.value+sign*bsPrice(spot,l.strike,T,r,l.iv||0.25,l.type)*100*l.qty,
-      cost:  acc.cost+sign*l.entry*100*l.qty,
+      delta:acc.delta+g.delta*m, gamma:acc.gamma+g.gamma*m,
+      theta:acc.theta+g.theta*m, vega:acc.vega+g.vega*m,
+      value:acc.value+sign*bsPrice(spot,l.strike,T,r,l.iv||0.25,l.type)*100*l.qty,
+      cost: acc.cost +sign*l.entry*100*l.qty,
     };
-  },{delta:0,gamma:0,theta:0,vega:0,value:0,cost:0});
+  },{delta:0,gamma:0,theta:0,vega:0,value:0,cost:0}),
+  [legVer,ivShift,dteRemaining,spotAdj,filterTicker,labView]);
+
   const unrealizedPnl = netGreeks.value - netGreeks.cost;
 
-  // Max profit/loss and breakevens from expiry data
+  // Per-leg display P&L (not memoized — cheap, called per-row)
+  const legCurrentPnl = leg=>{
+    const baseSign=leg.dir==="long"?1:-1;
+    const sign=leg.closing?-baseSign:baseSign;
+    const T=Math.max(0.001,leg.dte/365);
+    return sign*(bsPrice(spot,leg.strike,T,r,(leg.iv||0.25),leg.type)-leg.entry)*100*leg.qty;
+  };
+
+  // ── Stats ─────────────────────────────────────────────────────────────────
   const expiryPnls = payoffData.map(d=>d.expiry);
-  const maxProfit  = Math.max(...expiryPnls);
-  const maxLoss    = Math.min(...expiryPnls);
+  const maxProfit  = expiryPnls.length ? Math.max(...expiryPnls) : 0;
+  const maxLoss    = expiryPnls.length ? Math.min(...expiryPnls) : 0;
   const breakevens = [];
   for(let i=1;i<payoffData.length;i++){
     const a=payoffData[i-1].expiry, b=payoffData[i].expiry;
-    if((a<0&&b>=0)||(a>=0&&b<0)){
-      const S=payoffData[i-1].S+(payoffData[i].S-payoffData[i-1].S)*(0-a)/(b-a);
-      breakevens.push(S.toFixed(2));
-    }
+    if((a<0&&b>=0)||(a>=0&&b<0))
+      breakevens.push((payoffData[i-1].S+(payoffData[i].S-payoffData[i-1].S)*(0-a)/(b-a)).toFixed(2));
   }
-
-  // Chart Y domain with padding
   const allVals = payoffData.flatMap(d=>[d.pnl,d.expiry]);
-  const yMin = Math.min(...allVals)*1.1, yMax = Math.max(...allVals)*1.1;
-  const yDom = [Math.min(yMin,-50), Math.max(yMax,50)];
+  const yDom = allVals.length
+    ? [Math.min(Math.min(...allVals)*1.15,-100), Math.max(Math.max(...allVals)*1.15,100)]
+    : [-100,100];
 
-  const SliderRow = ({label,value,min,max,step,onChange,display}) => (
-    <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-      <span style={{fontSize:9,color:"#444",letterSpacing:"0.08em",width:80,flexShrink:0}}>{label}</span>
-      <input type="range" min={min} max={max} step={step} value={value}
-        onChange={e=>onChange(Number(e.target.value))}
-        style={{flex:1,accentColor:"var(--green)",cursor:"pointer"}}/>
-      <span style={{fontSize:10,color:"#ccc",width:60,textAlign:"right",flexShrink:0}}>{display}</span>
+  // ── Shared view helpers (inline JSX — no inner components) ───────────────
+
+  const scenarioPanel = (
+    <div style={{border:"1px solid var(--border)",padding:"8px 12px",background:"var(--bg1)"}}>
+      <div style={{fontSize:9,color:"#444",letterSpacing:"0.1em",marginBottom:7}}>SCENARIO</div>
+      <SliderRow label="UNDERLYING" value={spotAdj} min={-25} max={25} step={0.5}
+        onChange={setSpotAdj}
+        display={`${spotAdj>=0?"+":""}${spotAdj.toFixed(1)}%  $${fmt(spot)}`}/>
+      <SliderRow label="DTE (days)" value={dteRemaining} min={0} max={maxDTE} step={1}
+        onChange={v=>setDteRemaining(Math.round(v))}
+        display={`${Math.round(dteRemaining)}d remaining`}/>
+      <SliderRow label="IV SHIFT" value={Math.round(ivShift*100)} min={-30} max={30} step={1}
+        onChange={v=>setIvShift(v/100)}
+        display={`${ivShift>=0?"+":""}${(ivShift*100).toFixed(0)}%`}/>
     </div>
   );
 
-  return (
-    <div style={{display:"flex",flexDirection:"column",gap:10,padding:"10px 14px",overflow:"auto",flex:1}}>
+  const chartToggle = (
+    <div style={{display:"flex",gap:2}}>
+      {["simple","multi"].map(m=>(
+        <button key={m} onClick={()=>setChartMode(m)}
+          style={{background:chartMode===m?"var(--green)":"none",border:"1px solid var(--border2)",
+            color:chartMode===m?"#000":"#555",fontFamily:"var(--mono)",fontSize:9,
+            padding:"2px 7px",cursor:"pointer"}}>{m.toUpperCase()}</button>
+      ))}
+    </div>
+  );
 
-      {/* Header */}
-      <div style={{display:"flex",alignItems:"center",gap:10,borderBottom:"1px solid var(--border)",paddingBottom:8}}>
-        <span className="section-label">OPTIONS LAB</span>
-        <span style={{fontSize:10,color:"#444"}}>
-          {chainData?.ticker} · ${fmt(spot)} · {Math.round(dte0*(dteAdj/100))}d remaining
-        </span>
-        <button onClick={addLeg}
-          style={{marginLeft:"auto",background:"var(--green)",border:"none",color:"#000",
-            fontFamily:"var(--mono)",fontSize:10,fontWeight:700,padding:"3px 10px",cursor:"pointer"}}>
-          + ADD LEG
-        </button>
-        {onClose&&<button onClick={onClose}
-          style={{background:"none",border:"1px solid var(--border2)",color:"#555",
-            fontFamily:"var(--mono)",fontSize:10,padding:"3px 8px",cursor:"pointer",
-            transition:"all 0.15s"}}
-          onMouseEnter={e=>{e.currentTarget.style.color="var(--red)";e.currentTarget.style.borderColor="var(--red)";}}
-          onMouseLeave={e=>{e.currentTarget.style.color="#555";e.currentTarget.style.borderColor="var(--border2)";}}>
-          ✕ CLOSE
-        </button>}
+  const chartPanel = (title) => (
+    <div style={{border:"1px solid var(--border)",padding:"8px 12px",background:"var(--bg1)"}}>
+      <div style={{display:"flex",alignItems:"center",marginBottom:6}}>
+        <span style={{fontSize:9,color:"#444",letterSpacing:"0.1em",flex:1}}>{title}</span>
+        {chartToggle}
       </div>
+      <PayoffChart data={payoffData} legs={activeLegSet}
+        chartMode={chartMode} lo={lo} hi={hi} yDom={yDom} r={r}/>
+    </div>
+  );
 
-      {/* Legs */}
-      {legs.length===0&&(
-        <div style={{padding:"12px",fontSize:10,color:"#333",textAlign:"center",
-          border:"1px dashed var(--border2)"}}>No legs — click + ADD LEG or click a strike in the chain</div>
-      )}
-      {legs.map((leg,i)=>{
-        const color = LEG_COLORS[i%LEG_COLORS.length];
-        const sign  = leg.dir==="long"?1:-1;
-        const T     = Math.max(0.001,leg.dte*(dteAdj/100)/365);
-        const curP  = bsPrice(spot,leg.strike,T,r,(leg.iv||0.25)+ivShift,leg.type);
-        const legPnl= sign*(curP-leg.entry)*100*leg.qty*contracts;
-        return (
-          <div key={leg.id} style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",
-            padding:"7px 10px",border:`1px solid rgba(${color==="var(--green)"?"0,229,160":color==="#4da8ff"?"77,168,255":color==="#f5a623"?"245,166,35":color==="#ff4d6d"?"255,77,109":"155,109,255"},0.2)`,
-            background:"var(--bg1)",borderLeft:`3px solid ${color}`}}>
-            {/* Type */}
-            <select value={leg.type} onChange={e=>updateLeg(leg.id,{type:e.target.value})}
-              className="expiry-select" style={{width:56}}>
-              <option value="call">CALL</option>
-              <option value="put">PUT</option>
-            </select>
-            {/* Direction */}
-            <select value={leg.dir} onChange={e=>updateLeg(leg.id,{dir:e.target.value})}
-              className="expiry-select" style={{width:62}}>
-              <option value="long">LONG</option>
-              <option value="short">SHORT</option>
-            </select>
-            {/* Strike */}
-            <select value={leg.strike} onChange={e=>updateLeg(leg.id,{strike:Number(e.target.value),
-              entry:(chain.find(c=>c.strike===Number(e.target.value)&&c.type===leg.type)?.mid||leg.entry)})}
-              className="expiry-select" style={{width:76}}>
-              {strikes.map(k=><option key={k} value={k}>${k}</option>)}
-            </select>
-            {/* IV */}
-            <div style={{display:"flex",alignItems:"center",gap:4}}>
-              <span style={{fontSize:9,color:"#444"}}>IV</span>
-              <input type="number" value={((leg.iv||0.25)*100).toFixed(1)}
-                onChange={e=>updateLeg(leg.id,{iv:Math.max(0.01,Number(e.target.value)/100)})}
-                style={{width:52,background:"var(--bg2)",border:"1px solid var(--border2)",
-                  color:"#ccc",fontFamily:"var(--mono)",fontSize:10,padding:"2px 4px",textAlign:"right"}}/>
-              <span style={{fontSize:9,color:"#444"}}>%</span>
+  const greeksPanel = (
+    <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+      <div style={{flex:2,minWidth:180,border:"1px solid var(--border)",padding:"8px 12px",background:"var(--bg1)"}}>
+        <div style={{fontSize:9,color:"#444",letterSpacing:"0.1em",marginBottom:7}}>NET GREEKS</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px 14px"}}>
+          {[["Δ DELTA", netGreeks.delta.toFixed(3),  netGreeks.delta>0?"#00e5a0":netGreeks.delta<0?"#ff4d6d":"#555"],
+            ["Γ GAMMA", netGreeks.gamma.toFixed(4),  "#4da8ff"],
+            ["Θ THETA", `${netGreeks.theta.toFixed(2)}/d`, netGreeks.theta<0?"#ff4d6d":"#00e5a0"],
+            ["V VEGA",  netGreeks.vega.toFixed(3),   "#9b6dff"],
+            ["P&L NOW", `${unrealizedPnl>=0?"+":""}$${unrealizedPnl.toFixed(2)}`, pnlColor(unrealizedPnl)],
+          ].map(([l,v,c])=>(
+            <div key={l} style={{display:"flex",justifyContent:"space-between"}}>
+              <span style={{fontSize:9,color:"#444"}}>{l}</span>
+              <span style={{fontSize:11,fontWeight:700,color:c}}>{v}</span>
             </div>
-            {/* Qty */}
-            <div style={{display:"flex",alignItems:"center",gap:4}}>
-              <span style={{fontSize:9,color:"#444"}}>QTY</span>
-              <input type="number" min={1} max={100} value={leg.qty}
-                onChange={e=>updateLeg(leg.id,{qty:Math.max(1,parseInt(e.target.value)||1)})}
-                style={{width:40,background:"var(--bg2)",border:"1px solid var(--border2)",
-                  color:"#ccc",fontFamily:"var(--mono)",fontSize:10,padding:"2px 4px",textAlign:"right"}}/>
+          ))}
+        </div>
+      </div>
+      <div style={{flex:1,minWidth:130,border:"1px solid var(--border)",padding:"8px 12px",background:"var(--bg1)"}}>
+        <div style={{fontSize:9,color:"#444",letterSpacing:"0.1em",marginBottom:7}}>TRADE STATS</div>
+        <div style={{display:"flex",flexDirection:"column",gap:5}}>
+          {[["MAX PROFIT",maxProfit>9998?"UNLIM":`+$${maxProfit.toFixed(0)}`,"#00e5a0"],
+            ["MAX LOSS",  maxLoss<-9998?"UNLIM":`-$${Math.abs(maxLoss).toFixed(0)}`,"#ff4d6d"],
+          ].map(([l,v,c])=>(
+            <div key={l} style={{display:"flex",justifyContent:"space-between"}}>
+              <span style={{fontSize:9,color:"#444"}}>{l}</span>
+              <span style={{fontSize:11,fontWeight:700,color:c}}>{v}</span>
             </div>
-            {/* Entry */}
-            <div style={{display:"flex",alignItems:"center",gap:4}}>
-              <span style={{fontSize:9,color:"#444"}}>ENTRY</span>
-              <input type="number" step={0.01} value={leg.entry.toFixed(2)}
-                onChange={e=>updateLeg(leg.id,{entry:Math.max(0,Number(e.target.value))})}
-                style={{width:54,background:"var(--bg2)",border:"1px solid var(--border2)",
-                  color:"#ccc",fontFamily:"var(--mono)",fontSize:10,padding:"2px 4px",textAlign:"right"}}/>
-            </div>
-            {/* Live P&L */}
-            <span style={{marginLeft:"auto",fontSize:11,fontWeight:700,color:pnlColor(legPnl)}}>
-              {legPnl>=0?"+":""}{fmtUSD(legPnl)}
+          ))}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
+            <span style={{fontSize:9,color:"#444"}}>B/E</span>
+            <span style={{fontSize:10,color:"#f5a623",textAlign:"right"}}>
+              {breakevens.length?breakevens.map(b=>`$${b}`).join(" / "):"—"}
             </span>
-            <button onClick={()=>removeLeg(leg.id)}
-              style={{background:"none",border:"none",color:"#333",cursor:"pointer",
-                fontSize:14,padding:0,fontFamily:"var(--mono)",transition:"color 0.15s"}}
-              onMouseEnter={e=>e.target.style.color="var(--red)"}
-              onMouseLeave={e=>e.target.style.color="#333"}>×</button>
-          </div>
-        );
-      })}
-
-      {/* Sliders */}
-      <div style={{border:"1px solid var(--border)",padding:"10px 12px",background:"var(--bg1)"}}>
-        <div style={{fontSize:9,color:"#444",letterSpacing:"0.1em",marginBottom:8}}>SCENARIO</div>
-        <SliderRow label="UNDERLYING" value={spotAdj} min={-25} max={25} step={0.5}
-          onChange={setSpotAdj} display={`$${fmt(spot)} (${spotAdj>=0?"+":""}${spotAdj}%)`}/>
-        <SliderRow label="DTE" value={dteAdj} min={0} max={100} step={1}
-          onChange={setDteAdj} display={`${Math.round(dte0*dteAdj/100)}d (${dteAdj}%)`}/>
-        <SliderRow label="IV SHIFT" value={Math.round(ivShift*100)} min={-30} max={30} step={1}
-          onChange={v=>setIvShift(v/100)} display={`${ivShift>=0?"+":""}${(ivShift*100).toFixed(0)}%`}/>
-        <SliderRow label="CONTRACTS" value={contracts} min={1} max={50} step={1}
-          onChange={setContracts} display={`${contracts}×`}/>
-      </div>
-
-      {/* Payoff chart */}
-      <div style={{border:"1px solid var(--border)",padding:"10px 12px",background:"var(--bg1)"}}>
-        <div style={{display:"flex",alignItems:"center",marginBottom:8}}>
-          <span style={{fontSize:9,color:"#444",letterSpacing:"0.1em",flex:1}}>PAYOFF DIAGRAM</span>
-          <div style={{display:"flex",gap:2}}>
-            {["simple","multi"].map(m=>(
-              <button key={m} onClick={()=>setChartMode(m)}
-                style={{background:chartMode===m?"var(--green)":"none",
-                  border:"1px solid var(--border2)",
-                  color:chartMode===m?"#000":"#555",fontFamily:"var(--mono)",
-                  fontSize:9,padding:"2px 8px",cursor:"pointer",letterSpacing:"0.06em"}}>
-                {m.toUpperCase()}
-              </button>
-            ))}
           </div>
         </div>
-        <ResponsiveContainer width="100%" height={180}>
-          <LineChart data={payoffData} margin={{top:4,right:8,bottom:4,left:48}}>
-            <XAxis dataKey="S" type="number" domain={[lo,hi]}
-              tickFormatter={v=>`$${v.toFixed(0)}`}
-              tick={{fontSize:9,fill:"#444"}} tickLine={false} axisLine={false}/>
-            <YAxis domain={yDom} tickFormatter={v=>v>=0?`+$${v.toFixed(0)}`:`-$${Math.abs(v).toFixed(0)}`}
-              tick={{fontSize:9,fill:"#444"}} tickLine={false} axisLine={false} width={46}/>
-            <Tooltip
-              contentStyle={{background:"#111",border:"1px solid #232323",fontSize:10}}
-              formatter={(v,n)=>[`${v>=0?"+":""}$${v.toFixed(2)}`,n==="pnl"?"Now":"Expiry"]}
-              labelFormatter={v=>`$${Number(v).toFixed(2)}`}/>
-            {/* Zero line */}
-            <Line type="monotone" dataKey={()=>0} stroke="#222" strokeWidth={1} dot={false} legendType="none" tooltipType="none"/>
-            {/* Current spot line — reference line via custom dot */}
-            {chartMode==="simple"&&(
-              <Line type="monotone" dataKey="expiry" stroke="#00e5a0" strokeWidth={2}
-                dot={false} name="Expiry"/>
-            )}
-            {chartMode==="simple"&&(
-              <Line type="monotone" dataKey="pnl" stroke="#4da8ff" strokeWidth={1.5}
-                dot={false} strokeDasharray="4 3" name="Now"/>
-            )}
-            {chartMode==="multi"&&legs.map((leg,i)=>{
-              const c=LEG_COLORS[i%LEG_COLORS.length];
-              const sign=leg.dir==="long"?1:-1;
-              return (
-                <Line key={leg.id} type="monotone"
-                  dataKey={d=>sign*(bsPrice(d.S,leg.strike,0,r,(leg.iv||0.25)+ivShift,leg.type)-leg.entry)*100*leg.qty*contracts}
-                  stroke={c} strokeWidth={1} dot={false} strokeDasharray="3 2"
-                  name={`${leg.dir} ${leg.type} ${leg.strike}`}/>
-              );
-            })}
-            {chartMode==="multi"&&(
-              <Line type="monotone" dataKey="expiry" stroke="#fff" strokeWidth={2.5}
-                dot={false} name="Combined"/>
-            )}
-          </LineChart>
-        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  return (
+    <div style={{display:"flex",flexDirection:"column",gap:8,padding:"8px 12px",
+      overflow:"auto",flex:1}}>
+
+      {/* View tabs */}
+      <div style={{display:"flex",alignItems:"center",gap:6,
+        borderBottom:"1px solid var(--border)",paddingBottom:8,flexWrap:"wrap"}}>
+        <div style={{display:"flex",gap:2}}>
+          {[["positions","▤ POSITIONS"],["theoretical","◎ THEORETICAL"],["combined","⊕ COMBINED"]].map(([v,label])=>(
+            <button key={v} onClick={()=>setLabView(v)}
+              style={{background:labView===v?"rgba(0,229,160,0.08)":"none",
+                border:`1px solid ${labView===v?"rgba(0,229,160,0.35)":"var(--border)"}`,
+                color:labView===v?"var(--green)":"#555",fontFamily:"var(--mono)",
+                fontSize:9,padding:"3px 10px",cursor:"pointer",transition:"all 0.15s"}}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <span style={{fontSize:10,color:"#444",marginLeft:4}}>
+          {ticker&&<>{ticker} · </>}
+          ${fmt(spot)} · {Math.round(dteRemaining)}d
+        </span>
+        {labView==="theoretical"&&(
+          <button onClick={addLeg}
+            style={{marginLeft:"auto",background:"var(--green)",border:"none",color:"#000",
+              fontFamily:"var(--mono)",fontSize:10,fontWeight:700,padding:"3px 10px",cursor:"pointer"}}>
+            + ADD LEG
+          </button>
+        )}
       </div>
 
-      {/* Greeks + stats */}
-      <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
-        {/* Net Greeks */}
-        <div style={{flex:2,minWidth:200,border:"1px solid var(--border)",
-          padding:"8px 12px",background:"var(--bg1)"}}>
-          <div style={{fontSize:9,color:"#444",letterSpacing:"0.1em",marginBottom:8}}>NET GREEKS</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"6px 16px"}}>
-            {[["Δ DELTA",netGreeks.delta.toFixed(3),netGreeks.delta>0?"#00e5a0":netGreeks.delta<0?"#ff4d6d":"#555"],
-              ["Γ GAMMA",netGreeks.gamma.toFixed(4),"#4da8ff"],
-              ["Θ THETA",`${netGreeks.theta.toFixed(2)}/d`,netGreeks.theta<0?"#ff4d6d":"#00e5a0"],
-              ["V VEGA", netGreeks.vega.toFixed(3),"#9b6dff"],
-              ["P&L NOW",`${unrealizedPnl>=0?"+":""}$${unrealizedPnl.toFixed(2)}`,pnlColor(unrealizedPnl)],
-            ].map(([l,v,c])=>(
-              <div key={l} style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <span style={{fontSize:9,color:"#444"}}>{l}</span>
-                <span style={{fontSize:11,fontWeight:700,color:c}}>{v}</span>
+      {/* ── POSITIONS ── */}
+      {labView==="positions"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:5}}>
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <span style={{fontSize:9,color:"#444"}}>
+              Portfolio positions · click to add to COMBINED
+            </span>
+            {ticker&&<span style={{fontSize:9,color:"#4da8ff",marginLeft:"auto"}}>
+              Viewing: {ticker}
+            </span>}
+          </div>
+          {allPositions.length===0
+            ? <div style={{padding:"12px",fontSize:10,color:"#333",textAlign:"center",
+                border:"1px dashed var(--border2)"}}>
+                No positions — import via sidebar → Settings → Portfolio Import
               </div>
-            ))}
-          </div>
+            : allPositions.map((p,i)=>{
+                const leg=posToLeg(p,100+i);
+                const lpnl=legCurrentPnl({...leg,iv:Math.max(0.01,(leg.iv||0.25)+ivShift),
+                                           dte:Math.min(leg.dte,dteRemaining)});
+                const inC=combinedRealLegs.some(
+                  l=>l.ticker===p.ticker&&l.strike===parseFloat(p.strike)&&l.type===p.type);
+                return (
+                  <div key={i} onClick={()=>!inC&&addToCombined(p)}
+                    title={inC?"Already in Combined":"Click to add to Combined"}
+                    style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",
+                      border:"1px solid var(--border)",background:"var(--bg1)",
+                      cursor:inC?"default":"pointer",
+                      borderLeft:`3px solid ${p.direction==="long"?"#00e5a0":"#ff4d6d"}`,
+                      opacity:inC?0.5:1,transition:"border-color 0.15s"}}
+                    onMouseEnter={e=>{ if(!inC) e.currentTarget.style.borderColor="var(--green)"; }}
+                    onMouseLeave={e=>{ e.currentTarget.style.borderColor="var(--border)"; }}>
+                    <span style={{fontWeight:700,color:"#fff",fontSize:10,width:46}}>{p.ticker}</span>
+                    <span style={{fontSize:10,color:p.direction==="long"?"#00e5a0":"#ff4d6d"}}>
+                      {p.direction?.toUpperCase()} {p.type}
+                    </span>
+                    <span style={{fontSize:10,color:"#555"}}>${fmt(p.strike)}</span>
+                    <span style={{fontSize:9,color:"#444"}}>{p.expiry}</span>
+                    <span style={{fontSize:9,color:"#555"}}>{p.contracts}×</span>
+                    <span style={{marginLeft:"auto",fontSize:11,fontWeight:700,color:pnlColor(lpnl)}}>
+                      {lpnl>=0?"+":""}{fmtUSD(lpnl)}
+                    </span>
+                    <span style={{fontSize:9,color:inC?"#555":"#333",flexShrink:0}}>
+                      {inC?"● added":"+ combined"}
+                    </span>
+                  </div>
+                );
+              })
+          }
+          {allPositions.length>0&&<>{scenarioPanel}{chartPanel("PORTFOLIO PAYOFF")}{greeksPanel}</>}
         </div>
-        {/* Trade stats */}
-        <div style={{flex:1,minWidth:140,border:"1px solid var(--border)",
-          padding:"8px 12px",background:"var(--bg1)"}}>
-          <div style={{fontSize:9,color:"#444",letterSpacing:"0.1em",marginBottom:8}}>TRADE STATS</div>
-          <div style={{display:"flex",flexDirection:"column",gap:5}}>
-            <div style={{display:"flex",justifyContent:"space-between"}}>
-              <span style={{fontSize:9,color:"#444"}}>MAX PROFIT</span>
-              <span style={{fontSize:11,fontWeight:700,color:"#00e5a0"}}>
-                {maxProfit>9999?"UNLIMITED":`+$${maxProfit.toFixed(0)}`}
-              </span>
+      )}
+
+      {/* ── THEORETICAL ── */}
+      {labView==="theoretical"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:5}}>
+          {legs.length===0
+            ? <div style={{padding:"12px",fontSize:10,color:"#333",textAlign:"center",
+                border:"1px dashed var(--border2)"}}>
+                No legs — click + ADD LEG, or click a strike + in the Chain view
+              </div>
+            : legs.map((leg,i)=>(
+                <LegRow key={leg.id}
+                  leg={{...leg,iv:Math.max(0.01,(leg.iv||0.25)+ivShift),
+                        dte:Math.min(leg.dte||dte0,dteRemaining)}}
+                  idx={i} editable={true}
+                  pnl={legCurrentPnl({...leg,iv:Math.max(0.01,(leg.iv||0.25)+ivShift),
+                                       dte:Math.min(leg.dte||dte0,dteRemaining)})}
+                  onUpdate={updateLeg} strikes={strikes} chain={chain} expiries={expiries}
+                  onRemove={removeLeg}/>
+              ))
+          }
+          {legs.length>0&&<>{scenarioPanel}{chartPanel("PAYOFF DIAGRAM")}{greeksPanel}</>}
+        </div>
+      )}
+
+      {/* ── COMBINED ── */}
+      {labView==="combined"&&(
+        <div style={{display:"flex",flexDirection:"column",gap:5}}>
+          {/* Legend + controls */}
+          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            <div style={{display:"flex",gap:10,fontSize:9,color:"#555",alignItems:"center"}}>
+              <span><span style={{display:"inline-block",width:14,height:2,background:"#00e5a0",
+                verticalAlign:"middle",marginRight:4}}/>Real</span>
+              <span><span style={{display:"inline-block",width:14,height:2,background:"#4da8ff",
+                verticalAlign:"middle",marginRight:4}}/>Theoretical</span>
+              <span><span style={{display:"inline-block",width:14,height:2,background:"#f5a623",
+                verticalAlign:"middle",marginRight:4}}/>Closing</span>
             </div>
-            <div style={{display:"flex",justifyContent:"space-between"}}>
-              <span style={{fontSize:9,color:"#444"}}>MAX LOSS</span>
-              <span style={{fontSize:11,fontWeight:700,color:"#ff4d6d"}}>
-                {maxLoss<-9999?"UNLIMITED":`-$${Math.abs(maxLoss).toFixed(0)}`}
-              </span>
-            </div>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-              <span style={{fontSize:9,color:"#444"}}>BREAKEVEN</span>
-              <span style={{fontSize:10,color:"#f5a623",textAlign:"right"}}>
-                {breakevens.length?breakevens.map(b=>`$${b}`).join(" / "):"—"}
-              </span>
+            <div style={{marginLeft:"auto",display:"flex",gap:4}}>
+              <button onClick={()=>setFilterTicker(f=>!f)}
+                style={{background:filterTicker?"rgba(77,168,255,0.08)":"none",
+                  border:`1px solid ${filterTicker?"rgba(77,168,255,0.35)":"var(--border)"}`,
+                  color:filterTicker?"#4da8ff":"#555",fontFamily:"var(--mono)",
+                  fontSize:9,padding:"2px 8px",cursor:"pointer",transition:"all 0.15s"}}>
+                {filterTicker?`${ticker} ONLY`:"ALL TICKERS"}
+              </button>
+              {combinedRealLegs.some(l=>!l.closing)&&(
+                <button onClick={exitAll}
+                  style={{background:"rgba(245,166,35,0.08)",border:"1px solid rgba(245,166,35,0.3)",
+                    color:"#f5a623",fontFamily:"var(--mono)",fontSize:9,padding:"2px 8px",cursor:"pointer"}}>
+                  EXIT ALL
+                </button>
+              )}
+              {combinedRealLegs.some(l=>l.closing)&&(
+                <button onClick={restoreAll}
+                  style={{background:"none",border:"1px solid var(--border)",color:"#555",
+                    fontFamily:"var(--mono)",fontSize:9,padding:"2px 8px",cursor:"pointer"}}>
+                  RESTORE ALL
+                </button>
+              )}
             </div>
           </div>
+
+          {combinedRealLegs.length===0&&legs.length===0&&(
+            <div style={{padding:"12px",fontSize:10,color:"#333",textAlign:"center",
+              border:"1px dashed var(--border2)"}}>
+              Add real positions from POSITIONS · Add legs from THEORETICAL
+            </div>
+          )}
+
+          {combinedRealLegs.length>0&&(
+            <div>
+              <div style={{fontSize:9,color:"#444",letterSpacing:"0.06em",marginBottom:4}}>
+                REAL POSITIONS {filterTicker&&ticker?`(${ticker})`:"(ALL)"}
+              </div>
+              {combinedRealLegs.map((leg,i)=>(
+                <LegRow key={leg.id}
+                  leg={{...leg,iv:Math.max(0.01,(leg.iv||0.25)+ivShift),
+                        dte:Math.min(leg.dte||dte0,dteRemaining)}}
+                  idx={i} editable={false}
+                  pnl={legCurrentPnl({...leg,iv:Math.max(0.01,(leg.iv||0.25)+ivShift),
+                                       dte:Math.min(leg.dte||dte0,dteRemaining)})}
+                  onToggleClose={toggleClose}
+                  onRemove={id=>setCombinedRealLegs(p=>p.filter(l=>l.id!==id))}/>
+              ))}
+            </div>
+          )}
+
+          {legs.length>0&&(
+            <div style={{marginTop:combinedRealLegs.length?6:0}}>
+              <div style={{fontSize:9,color:"#444",letterSpacing:"0.06em",marginBottom:4}}>
+                THEORETICAL LEGS
+              </div>
+              {legs.map((leg,i)=>(
+                <LegRow key={leg.id}
+                  leg={{...leg,iv:Math.max(0.01,(leg.iv||0.25)+ivShift),
+                        dte:Math.min(leg.dte||dte0,dteRemaining)}}
+                  idx={i} editable={true}
+                  pnl={legCurrentPnl({...leg,iv:Math.max(0.01,(leg.iv||0.25)+ivShift),
+                                       dte:Math.min(leg.dte||dte0,dteRemaining)})}
+                  onUpdate={updateLeg} strikes={strikes} chain={chain} expiries={expiries}
+                  onRemove={removeLeg}/>
+              ))}
+            </div>
+          )}
+
+          {combinedLegs.length>0&&<>{scenarioPanel}{chartPanel("COMBINED PAYOFF")}{greeksPanel}</>}
         </div>
-      </div>
+      )}
 
     </div>
   );
 }
+
 
 // ── Sidebar ────────────────────────────────────────────────────────────────────
 
@@ -1464,6 +1821,7 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
           <LabPanel
             chainData={activeTab.chainData}
             seedLegs={labLegs}
+            chainExpiries={activeTab?.expiries||[]}
             onClose={()=>{ pushNav(view,activeTabId); setView("strategy"); }}
           />
         )}
@@ -1510,7 +1868,7 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
 // ── AnalysisPane — right panel: strategy + lab combined ───────────────────────
 
 function AnalysisPane({tabs,setTabs,nextId,setNextId,liveSpots,
-                       labLegs,setLabLegs,view,setView,onClose}) {
+                       labLegs,setLabLegs,view,setView,onClose,portData}) {
 
   const [activeTabId,setActiveTabId] = useState(tabs[0]?.id||1);
   const wsRefs = useRef({});
@@ -1647,7 +2005,8 @@ function AnalysisPane({tabs,setTabs,nextId,setNextId,liveSpots,
 
             {/* Lab below strategy */}
             <LabPanel chainData={chainData} seedLegs={labLegs}
-              onClose={null}/>
+              portData={portData} onClose={null}
+              chainExpiries={activeTab?.expiries||[]}/>
           </div>
         )}
 
@@ -1720,8 +2079,15 @@ export default function App() {
       const r=await fetch(`${API}/health`,{signal:AbortSignal.timeout(4000)});
       if (!r.ok) throw new Error();
       const d=await r.json();
-      setServerStatus({api:"up",...d});
-    } catch { setServerStatus(p=>({...p,api:"down"})); }
+      // Only update state if values changed — prevents cascading re-renders every 5s
+      setServerStatus(prev=>{
+        const next={api:"up",...d};
+        const changed=Object.keys(next).some(k=>prev[k]!==next[k]);
+        return changed?next:prev;
+      });
+    } catch {
+      setServerStatus(prev=>prev.api==="down"?prev:{...prev,api:"down"});
+    }
     finally { statusPoll.current=false; }
   },[]);
   useEffect(()=>{ pollStatus(); const id=setInterval(pollStatus,5000); return ()=>clearInterval(id); },[pollStatus]);
@@ -1867,6 +2233,7 @@ export default function App() {
                     liveSpots={liveSpots}
                     labLegs={labLegsB} setLabLegs={setLabLegsB}
                     view={viewB} setView={setViewB}
+                    portData={portData}
                     onClose={()=>setSplitMode(false)}/>
                 </div>
               </>
@@ -1996,4 +2363,12 @@ const CSS = `
   ::-webkit-scrollbar{width:4px;height:4px}
   ::-webkit-scrollbar-track{background:var(--bg)}
   ::-webkit-scrollbar-thumb{background:var(--border2)}
+  /* Suppress default range input on all browsers — we use custom track */
+  input[type=range]{-webkit-appearance:none;appearance:none;background:transparent;width:100%}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:0;height:0}
+  input[type=range]::-moz-range-thumb{width:0;height:0;border:none}
+  /* Hide number input spinners — they overlap values in narrow inputs */
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+  input[type=number]{-moz-appearance:textfield;appearance:textfield}
 `;
