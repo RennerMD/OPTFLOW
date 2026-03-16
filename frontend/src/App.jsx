@@ -45,25 +45,28 @@ function SignalChip({action,reason}) {
   );
 }
 
-function SideSection({label,open,onToggle,children,badge,indent=false}) {
+function SideSection({label,open,onToggle,children,badge,indent=false,headerAction}) {
   return (
     <div style={{
       borderBottom:indent?"none":"1px solid var(--border)",
       borderTop:indent?"1px solid rgba(255,255,255,0.04)":"none",
       flexShrink:0,
     }}>
-      <button onClick={onToggle} className="side-section-btn"
-        style={{paddingLeft:indent?"22px":"14px",fontSize:indent?"8px":"9px",
-          color:indent?"#333":"#444"}}>
-        <span style={{display:"flex",alignItems:"center",gap:6}}>
-          {indent&&<span style={{fontSize:8,color:"#2a2a2a"}}>▸</span>}
-          {label}
-          {badge&&<span style={{background:"rgba(255,77,109,0.15)",color:"#ff4d6d",
-            fontSize:9,padding:"1px 5px",borderRadius:2}}>{badge}</span>}
-        </span>
-        <span style={{fontSize:9,transition:"transform 0.2s",
-          display:"inline-block",transform:open?"rotate(180deg)":"rotate(0deg)"}}>▾</span>
-      </button>
+      <div style={{display:"flex",alignItems:"center"}}>
+        <button onClick={onToggle} className="side-section-btn"
+          style={{flex:1,paddingLeft:indent?"22px":"14px",fontSize:indent?"8px":"9px",
+            color:indent?"var(--t3)":"var(--t2)"}}>
+          <span style={{display:"flex",alignItems:"center",gap:6}}>
+            {indent&&<span style={{fontSize:8,color:"var(--t4)"}}>▸</span>}
+            {label}
+            {badge&&<span style={{background:"rgba(255,77,109,0.15)",color:"#ff4d6d",
+              fontSize:9,padding:"1px 5px",borderRadius:2}}>{badge}</span>}
+          </span>
+          <span style={{fontSize:9,transition:"transform 0.2s",
+            display:"inline-block",transform:open?"rotate(180deg)":"rotate(0deg)"}}>▾</span>
+        </button>
+        {headerAction&&<div style={{paddingRight:8,flexShrink:0}}>{headerAction}</div>}
+      </div>
       {open&&<div>{children}</div>}
     </div>
   );
@@ -90,7 +93,7 @@ function ChainTable({chain,spot,activeType,onRowClick}) {
                   <td style={{padding:"2px 6px"}}>
                     <button onClick={()=>onRowClick(row)}
                       title="Analyze in Lab"
-                      style={{background:"none",border:"1px solid #1e1e1e",color:"#333",
+                      style={{background:"none",border:"1px solid #1e1e1e",color:"#666",
                         fontFamily:"var(--mono)",fontSize:9,padding:"1px 5px",cursor:"pointer",
                         transition:"all 0.15s",letterSpacing:0}}
                       onMouseEnter={e=>{e.currentTarget.style.color="var(--green)";e.currentTarget.style.borderColor="var(--green)";}}
@@ -123,7 +126,7 @@ function IVChart({ticker}) {
   if (!data.length) return null;
   return (
     <div className="iv-chart-wrap">
-      <div style={{fontSize:10,color:"#444",letterSpacing:"0.1em",marginBottom:6}}>60-DAY HV</div>
+      <div style={{fontSize:10,color:"#777",letterSpacing:"0.1em",marginBottom:6}}>60-DAY HV</div>
       <ResponsiveContainer width="100%" height={70}>
         <LineChart data={data} margin={{top:2,right:4,bottom:2,left:4}}>
           <XAxis dataKey="date" hide/>
@@ -147,7 +150,7 @@ function PortfolioPanel({data, onTickerOpen, liveSpots={}}) {
   if (!data) return (
     <div className="panel-empty">
       No portfolio loaded<br/>
-      <span style={{fontSize:10,color:"#2a2a2a",marginTop:8,display:"block"}}>
+      <span style={{fontSize:10,color:"#999",marginTop:8,display:"block"}}>
         Import via sidebar → Settings → Portfolio Import
       </span>
     </div>
@@ -214,7 +217,7 @@ function PortfolioPanel({data, onTickerOpen, liveSpots={}}) {
       {/* ── Summary bar ── */}
       <div className="acct-value-bar">
         <div>
-          <div style={{fontSize:9,color:"#555",letterSpacing:"0.15em",marginBottom:4}}>
+          <div style={{fontSize:9,color:"#999",letterSpacing:"0.15em",marginBottom:4}}>
             PORTFOLIO VALUE (OPTIONS)
           </div>
           <div style={{fontSize:26,fontWeight:700,color:"#fff",lineHeight:1}}>
@@ -231,7 +234,7 @@ function PortfolioPanel({data, onTickerOpen, liveSpots={}}) {
             ["⚠",alerts.length,alerts.length>0?"#ff4d6d":"#555"]
           ].map(([l,v,c])=>(
             <div key={l} style={{textAlign:"center"}}>
-              <div style={{fontSize:9,color:"#444",letterSpacing:"0.1em",marginBottom:3}}>{l}</div>
+              <div style={{fontSize:9,color:"#777",letterSpacing:"0.1em",marginBottom:3}}>{l}</div>
               <div style={{fontSize:18,fontWeight:700,color:c}}>{v}</div>
             </div>
           ))}
@@ -264,7 +267,7 @@ function PortfolioPanel({data, onTickerOpen, liveSpots={}}) {
                   <span style={{color:"#ff4d6d"}}>⚠</span>
                   <div style={{flex:1}}>
                     <b style={{color:"#fff"}}>{a.ticker}</b>
-                    <span style={{color:"#555",marginLeft:6,fontSize:10}}>
+                    <span style={{color:"#999",marginLeft:6,fontSize:10}}>
                       {a.type} {fmt(a.strike)}
                     </span>
                     <div style={{fontSize:10,color:"#f5a623",marginTop:1}}>{a.message}</div>
@@ -284,7 +287,7 @@ function PortfolioPanel({data, onTickerOpen, liveSpots={}}) {
                   style={{display:"flex",alignItems:"center",gap:8,marginBottom:3,
                     fontSize:11,padding:"3px 8px",border:"1px solid #1e1e1e",cursor:"pointer"}}>
                   <b style={{color:"#fff",width:44}}>{e.ticker}</b>
-                  <span style={{color:"#555",fontSize:10}}>{e.type} {fmt(e.strike)}</span>
+                  <span style={{color:"#999",fontSize:10}}>{e.type} {fmt(e.strike)}</span>
                   <span style={{marginLeft:"auto"}}>
                     <span className="dte-badge" style={{fontSize:9,
                       borderColor:e.dte<=21?"rgba(255,77,109,0.4)":e.dte<=45?"rgba(245,166,35,0.4)":"#282828",
@@ -310,10 +313,10 @@ function PortfolioPanel({data, onTickerOpen, liveSpots={}}) {
             outline:"none"}}/>
         {filter&&(
           <button onClick={()=>setFilter("")}
-            style={{background:"none",border:"none",color:"#555",cursor:"pointer",
+            style={{background:"none",border:"none",color:"#999",cursor:"pointer",
               fontFamily:"var(--mono)",fontSize:11}}>✕</button>
         )}
-        <span style={{fontSize:9,color:"#444",flexShrink:0}}>
+        <span style={{fontSize:9,color:"#777",flexShrink:0}}>
           {sorted.length}/{positions.length}
         </span>
       </div>
@@ -343,7 +346,7 @@ function PortfolioPanel({data, onTickerOpen, liveSpots={}}) {
           </thead>
           <tbody>
             {sorted.length===0
-              ? <tr><td colSpan={16} style={{textAlign:"center",padding:16,color:"#2a2a2a"}}>
+              ? <tr><td colSpan={16} style={{textAlign:"center",padding:16,color:"#999"}}>
                   {filter?"No matches":"No positions"}
                 </td></tr>
               : sorted.map((p,i)=>{
@@ -367,7 +370,7 @@ function PortfolioPanel({data, onTickerOpen, liveSpots={}}) {
                           {p.direction?.toUpperCase()} {p.type}
                         </td>
                         <td>{fmt(p.strike)}</td>
-                        <td style={{fontSize:10,color:"#555"}}>{p.expiry}</td>
+                        <td style={{fontSize:10,color:"#999"}}>{p.expiry}</td>
                         <td>
                           <span className="dte-badge" style={{fontSize:9,
                             borderColor:urg?"rgba(255,77,109,0.35)":"#282828",
@@ -376,7 +379,7 @@ function PortfolioPanel({data, onTickerOpen, liveSpots={}}) {
                           </span>
                         </td>
                         <td>{p.contracts}</td>
-                        <td style={{color:"#555"}}>${fmt(p.entry_price,2)}</td>
+                        <td style={{color:"#999"}}>${fmt(p.entry_price,2)}</td>
                         <td>${fmt(p.mid,2)}</td>
                         <td style={{color:pnlColor(p.pnl),fontWeight:600}}>
                           {p.pnl>=0?"+":""}{fmtUSD(p.pnl)}
@@ -390,10 +393,10 @@ function PortfolioPanel({data, onTickerOpen, liveSpots={}}) {
                         <td>
                           {p.alerts?.length
                             ? <span style={{color:"#f5a623",fontSize:10,fontWeight:700}}>⚠ ACT</span>
-                            : <span style={{color:"#2a2a2a",fontSize:10}}>HOLD</span>}
+                            : <span style={{color:"#999",fontSize:10}}>HOLD</span>}
                         </td>
                         <td onClick={e=>{e.stopPropagation();onTickerOpen&&onTickerOpen(p.ticker);}}
-                          style={{color:"#555",fontSize:10,cursor:"pointer",padding:"0 8px"}}
+                          style={{color:"#999",fontSize:10,cursor:"pointer",padding:"0 8px"}}
                           onMouseEnter={e=>e.currentTarget.style.color="var(--green)"}
                           onMouseLeave={e=>e.currentTarget.style.color="#555"}>
                           ↗
@@ -406,7 +409,7 @@ function PortfolioPanel({data, onTickerOpen, liveSpots={}}) {
                           <td colSpan={16} style={{padding:"8px 12px",
                             background:"rgba(0,0,0,0.3)",
                             borderBottom:"2px solid rgba(0,229,160,0.15)"}}>
-                            <div style={{fontSize:9,color:"#555",marginBottom:6,
+                            <div style={{fontSize:9,color:"#999",marginBottom:6,
                               letterSpacing:"0.08em"}}>
                               IV SCENARIO — {p.ticker} {p.direction?.toUpperCase()} {p.type}
                               &nbsp;${fmt(p.strike)} exp {p.expiry}
@@ -433,50 +436,70 @@ function PortfolioPanel({data, onTickerOpen, liveSpots={}}) {
 
 // ── StrategyPanel ──────────────────────────────────────────────────────────────
 function StrategyPanel({chainData, onLabOpen}) {
-  const [mode,setMode] = useState("longcall");
+  const [mode,         setMode]        = useState("longcall");
+  const [rankingOpen,  setRankingOpen] = useState(true);   // collapsible grid
+  // Per-strategy editable exit rules stored as {strategyId: [rule, rule, ...]}
+  const [exitEdits,    setExitEdits]   = useState({});
+  const [editingExit,  setEditingExit] = useState(null);   // {sid, idx}
+  const [exitDraft,    setExitDraft]   = useState("");
+
   if (!chainData) return <div className="panel-empty">Load a chain first</div>;
   const {chain=[],spot,iv_rank:ivRank,dte,atm_iv:atmIV} = chainData;
 
   const strategies = [
-    {id:"longcall",name:"LONG CALL",color:"#00e5a0",category:"DEBIT",
+    {id:"longcall",   name:"LONG CALL",        color:"#00e5a0", category:"DEBIT",
      desc:"Directional bullish. Pay premium, profit if stock rises.",
-     entryRule:"IV Rank < 30",exitRules:["Sell at 100% profit","Stop at 50% of premium","Exit at 21 DTE"],
-     strikeGuide:"ATM or 1-3 strikes OTM.",
-     score:ivRank!=null?Math.max(0,100-ivRank*1.8):null,signal:ivRank<30?"BUY":ivRank>55?"AVOID":"NEUTRAL"},
-    {id:"longput",name:"LONG PUT",color:"#00e5a0",category:"DEBIT",
+     entryRule:"IV Rank < 30", strikeGuide:"ATM or 1-3 strikes OTM.",
+     exitRules:["Sell at 100% profit","Stop at 50% of premium paid","Exit at 21 DTE"],
+     score:ivRank!=null?Math.max(0,100-ivRank*1.8):null,
+     signal:ivRank<30?"BUY":ivRank>55?"AVOID":"NEUTRAL"},
+    {id:"longput",    name:"LONG PUT",          color:"#00e5a0", category:"DEBIT",
      desc:"Directional bearish. Profit if stock falls below strike.",
-     entryRule:"IV Rank < 30",exitRules:["Sell at 100% profit","Stop at 50% of premium","Exit at 21 DTE"],
-     strikeGuide:"ATM or 1-2 strikes OTM.",
-     score:ivRank!=null?Math.max(0,100-ivRank*1.8):null,signal:ivRank<30?"BUY":ivRank>55?"AVOID":"NEUTRAL"},
-    {id:"csp",name:"CASH-SECURED PUT",color:"#4da8ff",category:"CREDIT",
+     entryRule:"IV Rank < 30", strikeGuide:"ATM or 1-2 strikes OTM.",
+     exitRules:["Sell at 100% profit","Stop at 50% of premium paid","Exit at 21 DTE"],
+     score:ivRank!=null?Math.max(0,100-ivRank*1.8):null,
+     signal:ivRank<30?"BUY":ivRank>55?"AVOID":"NEUTRAL"},
+    {id:"csp",        name:"CASH-SECURED PUT",  color:"#4da8ff", category:"CREDIT",
      desc:"Sell OTM put. Keep premium or acquire stock at discount.",
-     entryRule:"IV Rank > 50, 30-45 DTE",exitRules:["Buy back at 50% profit","Roll if tested","Exit at 21 DTE"],
-     strikeGuide:"10-20% OTM.",
+     entryRule:"IV Rank > 50, 30-45 DTE", strikeGuide:"10-20% OTM.",
+     exitRules:["Buy back at 50% profit","Roll if tested before 21 DTE","Close at 21 DTE"],
      score:ivRank!=null?Math.max(0,ivRank*0.9-Math.abs(dte-37)*0.9+5):null,
      signal:ivRank>50&&dte>=25&&dte<=50?"SELL":ivRank>40?"WATCH":"NEUTRAL"},
-    {id:"coveredcall",name:"COVERED CALL",color:"#4da8ff",category:"CREDIT",
+    {id:"coveredcall",name:"COVERED CALL",      color:"#4da8ff", category:"CREDIT",
      desc:"Sell OTM call against shares. Collect premium, cap upside.",
-     entryRule:"IV Rank > 45, own underlying",exitRules:["Buy back at 50% profit","Roll near strike","Let expire OTM"],
-     strikeGuide:"10-15% OTM (delta 0.25-0.35).",
+     entryRule:"IV Rank > 45, own underlying", strikeGuide:"10-15% OTM (delta 0.25-0.35).",
+     exitRules:["Buy back at 50% profit","Roll up-and-out near strike","Let expire OTM"],
      score:ivRank!=null?Math.max(0,ivRank*0.85-Math.abs(dte-30)*0.7):null,
      signal:ivRank>45?"SELL":"NEUTRAL"},
-    {id:"ironcondor",name:"IRON CONDOR",color:"#9b6dff",category:"CREDIT",
+    {id:"ironcondor", name:"IRON CONDOR",       color:"#9b6dff", category:"CREDIT",
      desc:"Sell OTM strangle + wings. Profit in range-bound market.",
-     entryRule:"IV Rank > 60, 30-45 DTE",exitRules:["Close at 50% max profit","Adjust if short Δ > 0.30","Exit at 21 DTE"],
-     strikeGuide:"Short at 1σ (16Δ), wings 5-10pts.",
+     entryRule:"IV Rank > 60, 30-45 DTE", strikeGuide:"Short at 16Δ, wings 5-10pt wide.",
+     exitRules:["Close at 50% max profit","Adjust if short delta > 0.30","Exit at 21 DTE"],
      score:ivRank!=null?Math.max(0,ivRank-45-Math.abs(dte-37)*0.6):null,
      signal:ivRank>60&&dte>=25&&dte<=50?"SELL":ivRank>45?"WATCH":"AVOID"},
-    {id:"vertical",name:"DEBIT SPREAD",color:"#f5a623",category:"DEBIT",
-     desc:"Buy near strike, sell further OTM. Lower cost vs naked.",
-     entryRule:"Any IV Rank",exitRules:["Close at 75% max profit","Stop at 50% debit paid","Exit at 21 DTE"],
-     strikeGuide:"Buy ATM, sell 5-10% OTM.",
-     score:ivRank!=null?40+Math.min(35,ivRank*0.5):null,signal:"NEUTRAL"},
+    {id:"vertical",   name:"DEBIT SPREAD",      color:"#f5a623", category:"DEBIT",
+     desc:"Buy near strike, sell further OTM. Lower cost vs naked long.",
+     entryRule:"Any IV Rank", strikeGuide:"Buy ATM, sell 5-10% OTM.",
+     exitRules:["Close at 75% max profit","Stop at 50% of debit paid","Exit at 21 DTE"],
+     score:ivRank!=null?40+Math.min(35,ivRank*0.5):null,
+     signal:"NEUTRAL"},
   ];
 
   const sorted = [...strategies].sort((a,b)=>(b.score||0)-(a.score||0));
-  const active = strategies.find(s=>s.id===mode)||strategies[0];
-  const calls  = chain.filter(r=>r.type==="call").sort((a,b)=>a.strike-b.strike);
-  const puts   = chain.filter(r=>r.type==="put").sort((a,b)=>a.strike-b.strike);
+  const active  = strategies.find(s=>s.id===mode)||strategies[0];
+
+  // Per-strategy exit rules: custom edits override defaults
+  const getExitRules = sid => exitEdits[sid] || strategies.find(s=>s.id===sid)?.exitRules || [];
+  const activeExitRules = getExitRules(active.id);
+
+  const commitExitEdit = () => {
+    if(!editingExit) return;
+    const {sid, idx} = editingExit;
+    const rules = [...getExitRules(sid)];
+    rules[idx] = exitDraft;
+    setExitEdits(prev=>({...prev,[sid]:rules}));
+    setEditingExit(null);
+  };
 
   function recStrikes(modeOverride, chainOverride, spotOverride, dteOverride) {
     const _mode  = modeOverride  || mode;
@@ -485,123 +508,206 @@ function StrategyPanel({chainData, onLabOpen}) {
     const _dte   = dteOverride   || dte;
     const _calls = _chain.filter(r=>r.type==="call").sort((a,b)=>a.strike-b.strike);
     const _puts  = _chain.filter(r=>r.type==="put").sort((a,b)=>a.strike-b.strike);
-    function _calls_f(a,b){ return _calls.filter(r=>r.strike>=_spot*a&&r.strike<=_spot*b); }
-    function _puts_f(a,b) { return _puts.filter(r=>r.strike>=_spot*a&&r.strike<=_spot*b); }
     switch(_mode) {
-      case "longcall":    return _calls.filter(r=>r.strike>=_spot*0.99&&r.strike<=_spot*1.10).slice(0,6).map(r=>({...r,type:"call",note:r.strike<=_spot*1.015?"ATM":`${((r.strike/spot-1)*100).toFixed(1)}%OTM`}));
-      case "longput":     return _puts.filter(r=>r.strike<=_spot*1.01&&r.strike>=_spot*0.90).slice(-6).map(r=>({...r,type:"put",note:r.strike>=_spot*0.985?"ATM":`${((1-r.strike/_spot)*100).toFixed(1)}%OTM`}));
-      case "csp":         return _puts.filter(r=>r.strike>=_spot*0.82&&r.strike<=_spot*0.97).slice(-6).map(r=>({...r,type:"call",note:`${((1-r.strike/_spot)*100).toFixed(1)}%OTM`,annRet:r.bid&&_dte?`${((r.bid/r.strike)*(365/dte)*100).toFixed(0)}%`:null}));
-      case "coveredcall": return _calls.filter(r=>r.strike>=_spot*1.02&&r.strike<=_spot*1.15).slice(0,6).map(r=>({...r,type:"call",note:`${((r.strike/spot-1)*100).toFixed(1)}%OTM`,annRet:r.bid&&_dte?`${((r.bid/_spot)*(365/dte)*100).toFixed(0)}%`:null}));
+      case "longcall":    return _calls.filter(r=>r.strike>=_spot*0.99&&r.strike<=_spot*1.10).slice(0,6)
+                            .map(r=>({...r,type:"call",note:r.strike<=_spot*1.015?"ATM":`${((r.strike/_spot-1)*100).toFixed(1)}%OTM`}));
+      case "longput":     return _puts.filter(r=>r.strike<=_spot*1.01&&r.strike>=_spot*0.90).slice(-6)
+                            .map(r=>({...r,type:"put",note:r.strike>=_spot*0.985?"ATM":`${((1-r.strike/_spot)*100).toFixed(1)}%OTM`}));
+      case "csp":         return _puts.filter(r=>r.strike>=_spot*0.82&&r.strike<=_spot*0.97).slice(-6)
+                            .map(r=>({...r,type:"put",note:`${((1-r.strike/_spot)*100).toFixed(1)}%OTM`,
+                              annRet:r.bid&&_dte?`${((r.bid/r.strike)*(365/_dte)*100).toFixed(0)}%`:null}));
+      case "coveredcall": return _calls.filter(r=>r.strike>=_spot*1.02&&r.strike<=_spot*1.15).slice(0,6)
+                            .map(r=>({...r,type:"call",note:`${((r.strike/_spot-1)*100).toFixed(1)}%OTM`,
+                              annRet:r.bid&&_dte?`${((r.bid/_spot)*(365/_dte)*100).toFixed(0)}%`:null}));
       case "ironcondor": {
         const sp=_puts.filter(r=>r.strike<=_spot*0.95).slice(-1)[0];
         const sc=_calls.filter(r=>r.strike>=_spot*1.05)[0];
         const lp=_puts.filter(r=>r.strike<=_spot*0.90).slice(-1)[0];
         const lc=_calls.filter(r=>r.strike>=_spot*1.10)[0];
-        return [sp,sc,lp,lc].filter(Boolean).map((r,i)=>({...r,type:i<2?"put":"call",note:["SHORT PUT","SHORT CALL","LONG PUT","LONG CALL"][i]}));
+        return [sp,sc,lp,lc].filter(Boolean).map((r,i)=>({...r,
+          type:i<2?"put":"call",note:["SHORT PUT","SHORT CALL","LONG PUT","LONG CALL"][i]}));
       }
-      case "vertical": return _calls.filter(r=>r.strike>=_spot*0.99&&r.strike<=_spot*1.08).slice(0,4).map((r,i)=>({...r,note:i===0?"BUY":"SELL"}));
+      case "vertical": return _calls.filter(r=>r.strike>=_spot*0.99&&r.strike<=_spot*1.08).slice(0,4)
+                          .map((r,i)=>({...r,note:i===0?"BUY":"SELL"}));
       default: return [];
     }
   }
+
   const recs = recStrikes(null,null,null,null);
 
   return (
-    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+    <div style={{display:"flex",flexDirection:"column",gap:10}}>
+
+      {/* ── Header row ── */}
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-        <span className="section-label">STRATEGY RANKING</span>
-        <span style={{fontSize:10,color:"#444"}}>
-          IVR <b style={{color:ivRank<30?"#00e5a0":ivRank>70?"#ff4d6d":"#f5a623"}}>{fmt(ivRank,1)}</b>
-          &nbsp;·&nbsp;DTE <b style={{color:"#fff"}}>{dte}</b>
-          &nbsp;·&nbsp;ATM IV <b style={{color:"#4da8ff"}}>{fmtPct(atmIV)}</b>
+        <button onClick={()=>setRankingOpen(o=>!o)}
+          style={{background:"none",border:"none",cursor:"pointer",padding:0,
+            display:"flex",alignItems:"center",gap:6}}>
+          <span className="section-label">STRATEGY RANKING</span>
+          <span style={{fontSize:9,color:"#777",transition:"transform 0.2s",display:"inline-block",
+            transform:rankingOpen?"rotate(180deg)":"rotate(0deg)"}}>▾</span>
+        </button>
+        <span style={{fontSize:10,color:"#777"}}>
+          IVR&nbsp;<b style={{color:ivRank<30?"#00e5a0":ivRank>70?"#ff4d6d":"#f5a623"}}>{fmt(ivRank,1)}</b>
+          &nbsp;·&nbsp;DTE&nbsp;<b style={{color:"#e0e0e0"}}>{dte}</b>
+          &nbsp;·&nbsp;ATM IV&nbsp;<b style={{color:"#4da8ff"}}>{fmtPct(atmIV)}</b>
         </span>
       </div>
-      <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
-        {sorted.map((s,rank)=>{
-          const rgb=s.color==="#00e5a0"?"0,229,160":s.color==="#4da8ff"?"77,168,255":s.color==="#9b6dff"?"155,109,255":"245,166,35";
-          const on=mode===s.id;
-          return (
-            <div key={s.id} onClick={()=>setMode(s.id)}
-              style={{border:`1px solid ${on?s.color:"#1e1e1e"}`,background:on?`rgba(${rgb},0.05)`:"var(--bg1)",
-                padding:"8px 10px",cursor:"pointer",transition:"all 0.15s",position:"relative"}}>
-              {rank===0&&<span style={{position:"absolute",top:5,right:6,fontSize:8,color:"#f5a623"}}>★</span>}
-              <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
-                <span style={{fontSize:10,fontWeight:700,color:on?s.color:"#bbb"}}>{s.name}</span>
-                <span style={{fontSize:8,color:s.color,background:`rgba(${rgb},0.12)`,padding:"1px 5px"}}>{s.category}</span>
-              </div>
-              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
-                <span style={{fontSize:9,color:signalColor(s.signal),fontWeight:700}}>{s.signal}</span>
-                {onLabOpen&&<button onClick={e=>{
-                    e.stopPropagation();
-                    // Build legs from this strategy's recommended strikes
-                    const r2 = recStrikes(s.id, chain, spot, dte);
-                    const legs = r2.slice(0,4).map((rec,i)=>({
-                      id: i+1,
-                      type: rec.type||"call",
-                      dir: rec.note?.includes("SHORT")||rec.note==="SELL" ? "short" : "long",
-                      strike: rec.strike,
-                      iv: rec.iv||atmIV||0.25,
-                      qty: 1,
-                      dte: dte||30,
-                      entry: rec.mid||rec.ask||0,
-                    }));
-                    onLabOpen(legs);
-                  }}
-                  style={{background:"none",border:"1px solid #1e1e1e",color:"#333",
-                    fontFamily:"var(--mono)",fontSize:8,padding:"1px 6px",cursor:"pointer",
-                    transition:"all 0.15s"}}
-                  onMouseEnter={e=>{e.currentTarget.style.color="var(--green)";e.currentTarget.style.borderColor="var(--green)";}}
-                  onMouseLeave={e=>{e.currentTarget.style.color="#333";e.currentTarget.style.borderColor="#1e1e1e";}}>
-                  LAB →
-                </button>}
-              </div>
-              {s.score!=null&&(
-                <div style={{display:"flex",alignItems:"center",gap:4}}>
-                  <div style={{flex:1,height:2,background:"#1a1a1a"}}>
-                    <div style={{height:"100%",width:`${Math.min(100,s.score)}%`,background:s.color,transition:"width 0.5s"}}/>
-                  </div>
-                  <span style={{fontSize:9,color:"#444",width:20,textAlign:"right"}}>{s.score.toFixed(0)}</span>
+
+      {/* ── Collapsible strategy grid ── */}
+      {rankingOpen&&(
+        <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
+          {sorted.map((s,rank)=>{
+            const rgb=s.color==="#00e5a0"?"0,229,160":s.color==="#4da8ff"?"77,168,255":
+                      s.color==="#9b6dff"?"155,109,255":"245,166,35";
+            const on=mode===s.id;
+            return (
+              <div key={s.id} onClick={()=>setMode(s.id)}
+                style={{border:`1px solid ${on?s.color:"#1e1e1e"}`,
+                  background:on?`rgba(${rgb},0.05)`:"var(--bg1)",
+                  padding:"7px 9px",cursor:"pointer",transition:"all 0.15s",position:"relative"}}>
+                {rank===0&&<span style={{position:"absolute",top:4,right:5,fontSize:8,color:"#f5a623"}}>★</span>}
+                <div style={{display:"flex",justifyContent:"space-between",marginBottom:2}}>
+                  <span style={{fontSize:9,fontWeight:700,color:on?s.color:"#bbb"}}>{s.name}</span>
+                  <span style={{fontSize:8,color:s.color,background:`rgba(${rgb},0.12)`,
+                    padding:"1px 4px"}}>{s.category}</span>
                 </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-      <div style={{border:"1px solid #1e1e1e",padding:"10px 12px",background:"var(--bg1)",display:"flex",gap:16,flexWrap:"wrap"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:3}}>
+                  <span style={{fontSize:9,color:signalColor(s.signal),fontWeight:700}}>{s.signal}</span>
+                  {onLabOpen&&(
+                    <button onClick={e=>{
+                      e.stopPropagation();
+                      const r2=recStrikes(s.id,chain,spot,dte);
+                      onLabOpen(r2.slice(0,4).map((rec,i)=>({
+                        id:i+1,type:rec.type||"call",
+                        dir:rec.note?.includes("SHORT")||rec.note==="SELL"?"short":"long",
+                        strike:rec.strike,iv:rec.iv||atmIV||0.25,qty:1,
+                        dte:dte||30,expiry:chainData?.expiry||"",entry:rec.mid||rec.ask||0,
+                      })));
+                    }}
+                      style={{background:"none",border:"1px solid #1e1e1e",color:"#777",
+                        fontFamily:"var(--mono)",fontSize:8,padding:"1px 5px",cursor:"pointer",
+                        transition:"all 0.15s"}}
+                      onMouseEnter={e=>{e.currentTarget.style.color="var(--green)";e.currentTarget.style.borderColor="var(--green)";}}
+                      onMouseLeave={e=>{e.currentTarget.style.color="#777";e.currentTarget.style.borderColor="#1e1e1e";}}>
+                      LAB →
+                    </button>
+                  )}
+                </div>
+                {s.score!=null&&(
+                  <div style={{display:"flex",alignItems:"center",gap:4}}>
+                    <div style={{flex:1,height:2,background:"#1a1a1a"}}>
+                      <div style={{height:"100%",width:`${Math.min(100,s.score)}%`,
+                        background:s.color,transition:"width 0.5s"}}/>
+                    </div>
+                    <span style={{fontSize:9,color:"#777",width:20,textAlign:"right"}}>
+                      {s.score.toFixed(0)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── Active strategy detail ── */}
+      <div style={{border:"1px solid #1e1e1e",padding:"10px 12px",background:"var(--bg1)",
+        display:"flex",gap:16,flexWrap:"wrap"}}>
         <div style={{flex:2,minWidth:160}}>
-          <div style={{fontSize:11,fontWeight:700,color:active.color,marginBottom:4}}>{active.name}</div>
-          <div style={{fontSize:10,color:"#666",lineHeight:1.6,marginBottom:6}}>{active.desc}</div>
-          <div style={{fontSize:10,color:"#555"}}><span style={{color:"#444"}}>ENTRY </span><span style={{color:"#ccc"}}>{active.entryRule}</span></div>
-          <div style={{fontSize:10,color:"#555",marginTop:4}}>{active.strikeGuide}</div>
+          <div style={{fontSize:11,fontWeight:700,color:active.color,marginBottom:4}}>
+            {active.name}
+          </div>
+          <div style={{fontSize:10,color:"#888",lineHeight:1.6,marginBottom:6}}>
+            {active.desc}
+          </div>
+          <div style={{fontSize:10,color:"#999"}}>
+            <span style={{color:"#777"}}>ENTRY&nbsp;</span>
+            <span style={{color:"#ccc"}}>{active.entryRule}</span>
+          </div>
+          <div style={{fontSize:10,color:"#999",marginTop:3}}>{active.strikeGuide}</div>
         </div>
+
         <div style={{flex:1,minWidth:140}}>
-          <div style={{fontSize:10,color:"#444",letterSpacing:"0.08em",marginBottom:5}}>EXIT RULES</div>
-          {active.exitRules.map((r,i)=>(
-            <div key={i} style={{display:"flex",gap:6,marginBottom:4,fontSize:10}}>
-              <span style={{color:i===0?"#00e5a0":i===1?"#ff4d6d":"#f5a623",flexShrink:0}}>{i===0?"✓":i===1?"✗":"⏱"}</span>
-              <span style={{color:"#555",lineHeight:1.4}}>{r}</span>
-            </div>
-          ))}
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:5}}>
+            <span style={{fontSize:10,color:"#777",letterSpacing:"0.08em"}}>EXIT RULES</span>
+            {exitEdits[active.id]&&(
+              <button onClick={()=>setExitEdits(p=>({...p,[active.id]:undefined}))}
+                title="Reset to defaults"
+                style={{background:"none",border:"none",color:"#666",cursor:"pointer",
+                  fontFamily:"var(--mono)",fontSize:8}}
+                onMouseEnter={e=>e.target.style.color="#f5a623"}
+                onMouseLeave={e=>e.target.style.color="#666"}>↺</button>
+            )}
+          </div>
+          {activeExitRules.map((rule,i)=>{
+            const isEditing = editingExit?.sid===active.id && editingExit?.idx===i;
+            const icon = i===0?"✓":i===1?"✗":"⏱";
+            const iconColor = i===0?"#00e5a0":i===1?"#ff4d6d":"#f5a623";
+            return (
+              <div key={i} style={{display:"flex",gap:6,marginBottom:4,fontSize:10,
+                alignItems:"flex-start"}}>
+                <span style={{color:iconColor,flexShrink:0,marginTop:1}}>{icon}</span>
+                {isEditing ? (
+                  <input autoFocus value={exitDraft}
+                    onChange={e=>setExitDraft(e.target.value)}
+                    onBlur={commitExitEdit}
+                    onKeyDown={e=>{if(e.key==="Enter")commitExitEdit();
+                                   if(e.key==="Escape")setEditingExit(null);}}
+                    style={{flex:1,background:"var(--bg2)",border:"1px solid var(--green)",
+                      color:"#fff",fontFamily:"var(--mono)",fontSize:10,padding:"1px 6px",
+                      outline:"none"}}/>
+                ) : (
+                  <span style={{color:"#999",lineHeight:1.4,cursor:"text",flex:1,
+                    borderBottom:"1px dashed transparent",transition:"border-color 0.15s"}}
+                    title="Click to edit"
+                    onClick={()=>{setEditingExit({sid:active.id,idx:i});setExitDraft(rule);}}
+                    onMouseEnter={e=>e.target.style.borderBottomColor="#444"}
+                    onMouseLeave={e=>e.target.style.borderBottomColor="transparent"}>
+                    {rule}
+                  </span>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
+
+      {/* ── Recommended strikes ── */}
       {recs.length>0&&(
         <div>
-          <div className="section-label" style={{marginBottom:6}}>STRIKES — {active.name}</div>
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+            <span className="section-label">RECOMMENDED STRIKES — {active.name}</span>
+            <span style={{fontSize:9,color:"#666"}}>
+              {active.category==="CREDIT"
+                ? "Strikes to sell for premium collection"
+                : "Strikes to buy for directional exposure"}
+            </span>
+          </div>
           <table className="chain-table">
             <thead><tr>
-              <th>NOTE</th><th>STRIKE</th><th>BID</th><th>ASK</th><th>MID</th>
-              <th>IV</th><th>Δ</th><th>Θ</th>{recs[0]?.annRet!==undefined&&<th>ANN</th>}
+              <th>ROLE</th><th>STRIKE</th><th>BID</th><th>ASK</th><th>MID</th>
+              <th>IV</th><th>Δ</th><th>Θ</th>
+              {recs[0]?.annRet!==undefined&&<th title="Annualised return on capital">ANN%</th>}
             </tr></thead>
             <tbody>
               {recs.map((r,i)=>(
-                <tr key={i} style={{borderLeft:r.note?.includes("SHORT")||r.note==="SELL"?"2px solid #ff4d6d":r.note==="BUY"||r.note==="ATM"?"2px solid #00e5a0":"none"}}>
+                <tr key={i} style={{
+                  borderLeft:r.note?.includes("SHORT")||r.note==="SELL"
+                    ?"2px solid #ff4d6d"
+                    :r.note==="BUY"||r.note==="ATM"
+                    ?"2px solid #00e5a0":"none"}}>
                   <td style={{color:"#f5a623",fontSize:10}}>{r.note}</td>
                   <td className="strike-col">{fmt(r.strike)}</td>
-                  <td>{fmt(r.bid,2)}</td><td>{fmt(r.ask,2)}</td>
+                  <td>{fmt(r.bid,2)}</td>
+                  <td>{fmt(r.ask,2)}</td>
                   <td style={{color:"#fff",fontWeight:600}}>{fmt(r.mid,2)}</td>
                   <td>{fmtPct(r.iv)}</td>
                   <td style={{color:r.delta>0?"#00e5a0":"#ff4d6d"}}>{fmt(r.delta,3)}</td>
                   <td style={{color:"#ff4d6d"}}>{fmt(r.theta,3)}</td>
-                  {r.annRet!==undefined&&<td style={{color:"#4da8ff",fontSize:10}}>{r.annRet||"—"}</td>}
+                  {r.annRet!==undefined&&(
+                    <td style={{color:"#4da8ff",fontSize:10}}>{r.annRet||"—"}</td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -652,7 +758,7 @@ function SliderRow({label, value, min, max, step, onChange, display}) {
 
   return (
     <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,userSelect:"none"}}>
-      <span style={{fontSize:9,color:"#444",letterSpacing:"0.08em",
+      <span style={{fontSize:9,color:"#777",letterSpacing:"0.08em",
         width:82,flexShrink:0,whiteSpace:"nowrap"}}>{label}</span>
       <div ref={trackRef} onMouseDown={startDrag}
         style={{flex:1,height:18,position:"relative",cursor:"ew-resize",
@@ -800,7 +906,7 @@ function LegRow({leg, idx, editable, onRemove, onUpdate, pnl=0,
         )}
         {/* Manual DTE override */}
         <div style={{display:"flex",alignItems:"center",gap:3}}>
-          <span style={{fontSize:9,color:"#444"}}>DTE</span>
+          <span style={{fontSize:9,color:"#777"}}>DTE</span>
           <input type="number" min={0} max={1000} value={leg.dte||30}
             onChange={e=>upd({dte:Math.max(0,parseInt(e.target.value)||0),expiry:""})}
             style={{width:40,background:"var(--bg2)",border:"1px solid var(--border2)",
@@ -808,16 +914,16 @@ function LegRow({leg, idx, editable, onRemove, onUpdate, pnl=0,
         </div>
         {/* IV */}
         <div style={{display:"flex",alignItems:"center",gap:3}}>
-          <span style={{fontSize:9,color:"#444"}}>IV</span>
+          <span style={{fontSize:9,color:"#777"}}>IV</span>
           <input type="number" value={((leg.iv||0.25)*100).toFixed(1)}
             onChange={e=>upd({iv:Math.max(0.01,Number(e.target.value)/100)})}
             style={{width:46,background:"var(--bg2)",border:"1px solid var(--border2)",
               color:"#ccc",fontFamily:"var(--mono)",fontSize:10,padding:"2px 6px",textAlign:"right"}}/>
-          <span style={{fontSize:9,color:"#444"}}>%</span>
+          <span style={{fontSize:9,color:"#777"}}>%</span>
         </div>
         {/* QTY */}
         <div style={{display:"flex",alignItems:"center",gap:3}}>
-          <span style={{fontSize:9,color:"#444"}}>QTY</span>
+          <span style={{fontSize:9,color:"#777"}}>QTY</span>
           <input type="number" min={1} max={100} value={leg.qty}
             onChange={e=>upd({qty:Math.max(1,parseInt(e.target.value)||1)})}
             style={{width:36,background:"var(--bg2)",border:"1px solid var(--border2)",
@@ -825,7 +931,7 @@ function LegRow({leg, idx, editable, onRemove, onUpdate, pnl=0,
         </div>
         {/* Entry */}
         <div style={{display:"flex",alignItems:"center",gap:3}}>
-          <span style={{fontSize:9,color:"#444"}}>ENTRY</span>
+          <span style={{fontSize:9,color:"#777"}}>ENTRY</span>
           <input type="number" step={0.01} value={(leg.entry||0).toFixed(2)}
             onChange={e=>upd({entry:Math.max(0,Number(e.target.value))})}
             style={{width:50,background:"var(--bg2)",border:"1px solid var(--border2)",
@@ -837,10 +943,10 @@ function LegRow({leg, idx, editable, onRemove, onUpdate, pnl=0,
           textDecoration:isClosing?"line-through":"none"}}>
           {leg.dir.toUpperCase()} {leg.type.toUpperCase()}
         </span>
-        <span style={{fontSize:10,color:"#555"}}>${fmt(leg.strike)}</span>
-        <span style={{fontSize:9,color:"#444"}}>{leg.expiry||`${leg.dte}d`}</span>
-        <span style={{fontSize:9,color:"#555"}}>{leg.qty}×</span>
-        <span style={{fontSize:9,color:"#555"}}>entry ${fmt(leg.entry||0,2)}</span>
+        <span style={{fontSize:10,color:"#999"}}>${fmt(leg.strike)}</span>
+        <span style={{fontSize:9,color:"#777"}}>{leg.expiry||`${leg.dte}d`}</span>
+        <span style={{fontSize:9,color:"#999"}}>{leg.qty}×</span>
+        <span style={{fontSize:9,color:"#999"}}>entry ${fmt(leg.entry||0,2)}</span>
       </>)}
 
       {/* P&L */}
@@ -865,7 +971,7 @@ function LegRow({leg, idx, editable, onRemove, onUpdate, pnl=0,
 
       {/* Remove */}
       {onRemove&&<button onClick={()=>onRemove(leg.id)}
-        style={{background:"none",border:"none",color:"#333",cursor:"pointer",fontSize:14,
+        style={{background:"none",border:"none",color:"#666",cursor:"pointer",fontSize:14,
           padding:0,fontFamily:"var(--mono)",transition:"color 0.15s"}}
         onMouseEnter={e=>e.target.style.color="var(--red)"}
         onMouseLeave={e=>e.target.style.color="#333"}>×</button>}
@@ -916,34 +1022,37 @@ const PayoffChart = React.memo(function PayoffChart({data,legs,chartMode,lo,hi,y
 // ── LabPanel ───────────────────────────────────────────────────────────────────
 
 // ── IVScenarioTable ────────────────────────────────────────────────────────────
-// Price × IV heatmap. Each cell shows P&L or theoretical value for the full
-// position at that (underlying price, IV shift) combination on the selected date.
 
-const IV_STEPS   = [-20,-15,-10,-5,0,+5,+10,+15,+20];  // % IV shift
-const PRICE_ROWS = 9;  // rows above + below current spot
+const PRICE_ROWS = 9;
 
 function IVScenarioTable({legs, spot0, spot, r, analysisDate, mode}) {
-  // Generate price rows: ±20% around spot0 in equal steps
+  // IV columns: current IV ± user-defined step
+  // Derive base IV from first leg (representative)
+  const baseIV = legs.length ? Math.round((legs[0].iv||0.25)*100) : 25;
+  const [ivStep, setIvStep]       = useState(5);       // increment %
+  const [editingStep, setEditing] = useState(false);
+  const [stepDraft, setStepDraft] = useState("5");
+
+  // 9 columns centred on baseIV: baseIV + [-4..+4]*step
+  const ivCols = [-4,-3,-2,-1,0,1,2,3,4].map(n=>baseIV + n*ivStep);
+
+  // Price rows: ±20% around spot0
   const pricePct = Array.from({length:PRICE_ROWS*2+1},(_,i)=>
-    Math.round((i-PRICE_ROWS)*(20/PRICE_ROWS)*10)/10);  // e.g. -20,-15.6...0...+20
+    Math.round((i-PRICE_ROWS)*(20/PRICE_ROWS)*10)/10);
   const prices = pricePct.map(p=>spot0*(1+p/100));
 
   if(!legs.length) return null;
 
-  // For each cell: compute aggregate P&L or value across all legs
-  const cellVal = (S, ivShiftPct) => {
+  const cellVal = (S, ivAbsPct) => {
     let total=0;
     legs.forEach(leg=>{
-      if(!leg.strike||!leg.iv) return;
-      const baseSign = leg.dir==="long"?1:-1;
-      const sign     = leg.closing?-baseSign:baseSign;
-      const iv       = Math.max(0.01,(leg.iv||0.25)+(ivShiftPct/100));
-      // Days remaining from analysisDate to leg expiry
+      if(!leg.strike) return;
+      const holdSign = leg.dir==="long"?1:-1;
+      const sign     = leg.closing?-holdSign:holdSign;
+      const iv       = Math.max(0.01, ivAbsPct/100);
       let T = 0.001;
       if(leg.expiry){
-        const expDate  = new Date(leg.expiry+"T00:00:00");
-        const anaDate  = new Date(analysisDate+"T00:00:00");
-        const days     = Math.max(0,(expDate-anaDate)/(1000*60*60*24));
+        const days = Math.max(0,(new Date(leg.expiry+"T00:00:00")-new Date(analysisDate+"T00:00:00"))/(864e5));
         T = Math.max(0.001, days/365);
       } else {
         T = Math.max(0.001,(leg.dte||30)/365);
@@ -958,81 +1067,122 @@ function IVScenarioTable({legs, spot0, spot, r, analysisDate, mode}) {
     return total;
   };
 
-  // Compute all values for color scaling
-  const allVals = prices.flatMap(S=>IV_STEPS.map(iv=>cellVal(S,iv)));
+  const allVals = prices.flatMap(S=>ivCols.map(iv=>cellVal(S,iv)));
   const maxAbs  = Math.max(1,...allVals.map(Math.abs));
 
-  const cellColor = v => {
+  const cellBg = v => {
     const intensity = Math.min(1, Math.abs(v)/maxAbs);
-    if(mode==="pnl"){
-      return v>0
-        ? `rgba(0,229,160,${0.08+intensity*0.35})`
-        : `rgba(255,77,109,${0.08+intensity*0.35})`;
-    }
-    return `rgba(77,168,255,${0.05+intensity*0.3})`;
+    if(mode==="pnl")
+      return v>0 ? `rgba(0,229,160,${0.07+intensity*0.33})` : `rgba(255,77,109,${0.07+intensity*0.33})`;
+    return `rgba(77,168,255,${0.05+intensity*0.28})`;
   };
 
-  const fmt2 = v => {
-    const abs = Math.abs(v);
-    const s   = abs>=1000?`$${(abs/1000).toFixed(1)}k`:`$${abs.toFixed(0)}`;
+  const cellTxt = v => {
+    const abs=Math.abs(v);
+    const s = abs>=10000?`$${(abs/1000).toFixed(0)}k` : abs>=1000?`$${(abs/1000).toFixed(1)}k` : `$${abs.toFixed(0)}`;
     return (mode==="pnl"?(v>=0?"+":"-"):"")+s;
   };
 
+  const commitStep = () => {
+    const n = parseInt(stepDraft);
+    if(n>=1&&n<=50) setIvStep(n);
+    setEditing(false);
+  };
+
   return (
-    <div style={{overflowX:"auto"}}>
-      <table style={{width:"100%",borderCollapse:"collapse",fontSize:9,
-        fontFamily:"var(--mono)"}}>
-        <thead>
-          <tr>
-            <th style={{padding:"3px 6px",color:"#444",textAlign:"left",
-              borderBottom:"1px solid var(--border)",whiteSpace:"nowrap"}}>
-              {mode==="pnl"?"P&L":"VALUE"} / IV→
-            </th>
-            {IV_STEPS.map(iv=>(
-              <th key={iv} style={{padding:"3px 5px",color:iv===0?"#ccc":"#555",
-                textAlign:"center",borderBottom:"1px solid var(--border)",
-                background:iv===0?"rgba(255,255,255,0.03)":"none",
-                whiteSpace:"nowrap"}}>
-                {iv>=0?"+":""}{iv}%
+    <div>
+      {/* IV step control */}
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,fontSize:9,color:"#888"}}>
+        <span>Base IV: <b style={{color:"#fff"}}>{baseIV}%</b></span>
+        <span style={{color:"#666"}}>·</span>
+        <span>Step:</span>
+        {editingStep ? (
+          <input autoFocus value={stepDraft}
+            onChange={e=>setStepDraft(e.target.value)}
+            onBlur={commitStep}
+            onKeyDown={e=>{if(e.key==="Enter")commitStep();if(e.key==="Escape")setEditing(false);}}
+            style={{width:36,background:"var(--bg2)",border:"1px solid var(--green)",
+              color:"#fff",fontFamily:"var(--mono)",fontSize:9,padding:"1px 4px",
+              textAlign:"center",outline:"none"}}/>
+        ) : (
+          <span onClick={()=>{setStepDraft(String(ivStep));setEditing(true);}}
+            title="Click to change IV step"
+            style={{cursor:"pointer",color:"#00e5a0",borderBottom:"1px dashed #00e5a0"}}
+            onMouseEnter={e=>e.target.style.color="#fff"}
+            onMouseLeave={e=>e.target.style.color="#00e5a0"}>
+            ±{ivStep}%
+          </span>
+        )}
+        <span style={{color:"#666",marginLeft:4}}>— cols span {baseIV-4*ivStep}% → {baseIV+4*ivStep}%</span>
+      </div>
+
+      <div style={{overflowX:"auto"}}>
+        <table style={{borderCollapse:"collapse",fontSize:9,fontFamily:"var(--mono)",width:"100%"}}>
+          <thead>
+            <tr>
+              <th style={{padding:"2px 6px",color:"#888",textAlign:"left",
+                borderBottom:"1px solid var(--border)",whiteSpace:"nowrap",fontSize:8}}>
+                {mode==="pnl"?"P&L":"VALUE"} ↕price / IV →
               </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {prices.map((S,ri)=>{
-            const pct = pricePct[ri];
-            const isSpot = Math.abs(pct)<(20/PRICE_ROWS/2);
-            return (
-              <tr key={ri} style={{
-                background:isSpot?"rgba(255,255,255,0.03)":"none",
-                outline:isSpot?"1px solid rgba(255,255,255,0.06)":"none"}}>
-                <td style={{padding:"3px 6px",color:isSpot?"#ccc":pct>0?"#00e5a0":"#ff4d6d",
-                  whiteSpace:"nowrap",borderRight:"1px solid var(--border)",
-                  fontWeight:isSpot?700:400}}>
-                  ${S.toFixed(0)} {isSpot?"◀":pct>=0?`+${pct.toFixed(1)}%`:`${pct.toFixed(1)}%`}
-                </td>
-                {IV_STEPS.map(iv=>{
-                  const v = cellVal(S,iv);
-                  return (
-                    <td key={iv} style={{
-                      padding:"2px 4px",textAlign:"right",
-                      background:cellColor(v),
-                      color:mode==="pnl"?(v>=0?"#00e5a0":"#ff4d6d"):"#4da8ff",
-                      fontWeight:isSpot?700:400,
-                      border:"1px solid rgba(255,255,255,0.02)",
-                      whiteSpace:"nowrap"}}>
-                      {fmt2(v)}
-                    </td>
-                  );
-                })}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+              {ivCols.map((iv,ci)=>(
+                <th key={ci} style={{padding:"2px 5px",textAlign:"center",
+                  borderBottom:"1px solid var(--border)",whiteSpace:"nowrap",
+                  color:iv===baseIV?"#e0e0e0":"#777",
+                  background:iv===baseIV?"rgba(255,255,255,0.04)":"none",
+                  fontSize:iv===baseIV?9:8}}>
+                  {iv}%
+                  {iv===baseIV&&<span style={{fontSize:7,color:"#555",display:"block"}}>current</span>}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {prices.map((S,ri)=>{
+              const pct=pricePct[ri];
+              const isSpot=Math.abs(pct)<(20/PRICE_ROWS/2);
+              return (
+                <tr key={ri} style={{
+                  outline:isSpot?"1px solid rgba(255,255,255,0.08)":"none",
+                  background:isSpot?"rgba(255,255,255,0.02)":"none"}}>
+                  <td style={{padding:"2px 6px",color:isSpot?"#e0e0e0":pct>0?"#00e5a0":"#ff4d6d",
+                    borderRight:"1px solid var(--border)",whiteSpace:"nowrap",
+                    fontWeight:isSpot?700:400,fontSize:8}}>
+                    ${S.toFixed(0)}{isSpot?" ◀":pct>=0?` +${pct.toFixed(1)}%`:` ${pct.toFixed(1)}%`}
+                  </td>
+                  {ivCols.map((iv,ci)=>{
+                    const v=cellVal(S,iv);
+                    return (
+                      <td key={ci} style={{padding:"2px 4px",textAlign:"right",
+                        background:cellBg(v),
+                        color:mode==="pnl"?(v>=0?"#00e5a0":"#ff4d6d"):"#4da8ff",
+                        fontWeight:isSpot?700:400,
+                        border:"1px solid rgba(255,255,255,0.02)",
+                        whiteSpace:"nowrap",fontSize:8}}>
+                        {cellTxt(v)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
+
+
+// ── LegRow — top-level so React never remounts on lab state change ─────────────
+
+// ── PayoffChart — React.memo prevents remount on unrelated state changes ────────
+
+// ── LabPanel ───────────────────────────────────────────────────────────────────
+
+// ── IVScenarioTable ────────────────────────────────────────────────────────────
+// Price × IV heatmap. Each cell shows P&L or theoretical value for the full
+// position at that (underlying price, IV shift) combination on the selected date.
+
 
 function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liveSpots={}}) {
   const spot0    = chainData?.spot      || 100;
@@ -1225,12 +1375,12 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
   // ── Shared inline panels ──────────────────────────────────────────────────
   const scenarioPanel=(
     <div style={{border:"1px solid var(--border)",padding:"8px 12px",background:"var(--bg1)"}}>
-      <div style={{fontSize:9,color:"#444",letterSpacing:"0.1em",marginBottom:7}}>SCENARIO</div>
+      <div style={{fontSize:9,color:"#777",letterSpacing:"0.1em",marginBottom:7}}>SCENARIO</div>
       <SliderRow label="UNDERLYING" value={spotAdj} min={-25} max={25} step={0.5}
         onChange={setSpotAdj}
         display={`${spotAdj>=0?"+":""}${spotAdj.toFixed(1)}%  $${fmt(spot)}`}/>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
-        <span style={{fontSize:9,color:"#444",letterSpacing:"0.08em",width:82,flexShrink:0}}>
+        <span style={{fontSize:9,color:"#777",letterSpacing:"0.08em",width:82,flexShrink:0}}>
           DATE
         </span>
         <input type="date"
@@ -1241,7 +1391,7 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
           style={{flex:1,background:"var(--bg2)",border:"1px solid var(--border2)",
             color:"#ccc",fontFamily:"var(--mono)",fontSize:10,padding:"2px 8px",
             outline:"none",colorScheme:"dark"}}/>
-        <span style={{fontSize:10,color:"#555",width:80,textAlign:"right",flexShrink:0}}>
+        <span style={{fontSize:10,color:"#999",width:80,textAlign:"right",flexShrink:0}}>
           {analysisDate===todayStr?"today":analysisDate}
         </span>
       </div>
@@ -1251,7 +1401,7 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
   const chartPanel=title=>(
     <div style={{border:"1px solid var(--border)",padding:"8px 12px",background:"var(--bg1)"}}>
       <div style={{display:"flex",alignItems:"center",marginBottom:6}}>
-        <span style={{fontSize:9,color:"#444",letterSpacing:"0.1em",flex:1}}>{title}</span>
+        <span style={{fontSize:9,color:"#777",letterSpacing:"0.1em",flex:1}}>{title}</span>
         <div style={{display:"flex",gap:2}}>
           {["simple","multi"].map(m=>(
             <button key={m} onClick={()=>setChartMode(m)}
@@ -1271,7 +1421,7 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
   const ivTable=(
     <div style={{border:"1px solid var(--border)",padding:"8px 12px",background:"var(--bg1)"}}>
       <div style={{display:"flex",alignItems:"center",marginBottom:8}}>
-        <span style={{fontSize:9,color:"#444",letterSpacing:"0.1em",flex:1}}>
+        <span style={{fontSize:9,color:"#777",letterSpacing:"0.1em",flex:1}}>
           IV SCENARIO TABLE — price × IV shift
         </span>
         <div style={{display:"flex",gap:2}}>
@@ -1294,7 +1444,7 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
   const greeksPanel=(
     <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
       <div style={{flex:2,minWidth:180,border:"1px solid var(--border)",padding:"8px 12px",background:"var(--bg1)"}}>
-        <div style={{fontSize:9,color:"#444",letterSpacing:"0.1em",marginBottom:7}}>NET GREEKS</div>
+        <div style={{fontSize:9,color:"#777",letterSpacing:"0.1em",marginBottom:7}}>NET GREEKS</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px 14px"}}>
           {[["Δ DELTA",netGreeks.delta.toFixed(3),netGreeks.delta>0?"#00e5a0":netGreeks.delta<0?"#ff4d6d":"#555"],
             ["Γ GAMMA",netGreeks.gamma.toFixed(4),"#4da8ff"],
@@ -1303,25 +1453,25 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
             ["P&L NOW",`${unrealizedPnl>=0?"+":""}$${unrealizedPnl.toFixed(2)}`,pnlColor(unrealizedPnl)],
           ].map(([l,v,c])=>(
             <div key={l} style={{display:"flex",justifyContent:"space-between"}}>
-              <span style={{fontSize:9,color:"#444"}}>{l}</span>
+              <span style={{fontSize:9,color:"#777"}}>{l}</span>
               <span style={{fontSize:11,fontWeight:700,color:c}}>{v}</span>
             </div>
           ))}
         </div>
       </div>
       <div style={{flex:1,minWidth:130,border:"1px solid var(--border)",padding:"8px 12px",background:"var(--bg1)"}}>
-        <div style={{fontSize:9,color:"#444",letterSpacing:"0.1em",marginBottom:7}}>TRADE STATS</div>
+        <div style={{fontSize:9,color:"#777",letterSpacing:"0.1em",marginBottom:7}}>TRADE STATS</div>
         <div style={{display:"flex",flexDirection:"column",gap:5}}>
           {[["MAX PROFIT",maxProfit>9998?"UNLIM":`+$${maxProfit.toFixed(0)}`,"#00e5a0"],
             ["MAX LOSS",  maxLoss<-9998?"UNLIM": `-$${Math.abs(maxLoss).toFixed(0)}`,"#ff4d6d"],
           ].map(([l,v,c])=>(
             <div key={l} style={{display:"flex",justifyContent:"space-between"}}>
-              <span style={{fontSize:9,color:"#444"}}>{l}</span>
+              <span style={{fontSize:9,color:"#777"}}>{l}</span>
               <span style={{fontSize:11,fontWeight:700,color:c}}>{v}</span>
             </div>
           ))}
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
-            <span style={{fontSize:9,color:"#444"}}>B/E</span>
+            <span style={{fontSize:9,color:"#777"}}>B/E</span>
             <span style={{fontSize:10,color:"#f5a623",textAlign:"right"}}>
               {breakevens.length?breakevens.map(b=>`$${b}`).join(" / "):"—"}
             </span>
@@ -1350,7 +1500,7 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
             </button>
           ))}
         </div>
-        <span style={{fontSize:10,color:"#444",marginLeft:4}}>
+        <span style={{fontSize:10,color:"#777",marginLeft:4}}>
           {ticker&&<>{ticker} · </>}${fmt(spot)}
         </span>
         {labView==="builder"&&(
@@ -1364,14 +1514,14 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
             )}
             {legs.some(l=>l.closing)&&(
               <button onClick={restoreAll}
-                style={{background:"none",border:"1px solid var(--border)",color:"#555",
+                style={{background:"none",border:"1px solid var(--border)",color:"#999",
                   fontFamily:"var(--mono)",fontSize:9,padding:"2px 8px",cursor:"pointer"}}>
                 RESTORE
               </button>
             )}
             {legs.length>0&&(
               <button onClick={clearAll}
-                style={{background:"none",border:"1px solid var(--border)",color:"#555",
+                style={{background:"none",border:"1px solid var(--border)",color:"#999",
                   fontFamily:"var(--mono)",fontSize:9,padding:"2px 8px",cursor:"pointer"}}
                 onMouseEnter={e=>{e.currentTarget.style.color="var(--red)";e.currentTarget.style.borderColor="var(--red)";}}
                 onMouseLeave={e=>{e.currentTarget.style.color="#555";e.currentTarget.style.borderColor="var(--border)";}}>
@@ -1392,11 +1542,11 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
       {labView==="positions"&&(
         <div style={{display:"flex",flexDirection:"column",gap:4}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <span style={{fontSize:9,color:"#444"}}>Click position to add to Builder</span>
+            <span style={{fontSize:9,color:"#777"}}>Click position to add to Builder</span>
             {ticker&&<span style={{fontSize:9,color:"#4da8ff"}}>Analysis ticker: {ticker}</span>}
           </div>
           {allPositions.length===0
-            ?<div style={{padding:"12px",fontSize:10,color:"#333",textAlign:"center",
+            ?<div style={{padding:"12px",fontSize:10,color:"#666",textAlign:"center",
                 border:"1px dashed var(--border2)"}}>
                No positions — import via sidebar → Settings → Portfolio Import
              </div>
@@ -1416,15 +1566,15 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
                    onMouseEnter={e=>{if(!alreadyIn)e.currentTarget.style.borderColor="var(--green)";}}
                    onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";}}>
                    <span style={{fontWeight:700,color:"#fff",fontSize:10,width:46}}>{p.ticker}</span>
-                   <span style={{fontSize:9,color:"#555",marginLeft:-2}}>
+                   <span style={{fontSize:9,color:"#999",marginLeft:-2}}>
                      ${fmt(liveSpots[p.ticker]||0)}
                    </span>
                    <span style={{fontSize:10,color:p.direction==="long"?"#00e5a0":"#ff4d6d"}}>
                      {p.direction?.toUpperCase()} {p.type}
                    </span>
-                   <span style={{fontSize:10,color:"#555"}}>${fmt(p.strike)}</span>
-                   <span style={{fontSize:9,color:"#444"}}>{p.expiry}</span>
-                   <span style={{fontSize:9,color:"#555"}}>{p.contracts}×</span>
+                   <span style={{fontSize:10,color:"#999"}}>${fmt(p.strike)}</span>
+                   <span style={{fontSize:9,color:"#777"}}>{p.expiry}</span>
+                   <span style={{fontSize:9,color:"#999"}}>{p.contracts}×</span>
                    <span style={{marginLeft:"auto",fontSize:11,fontWeight:700,color:pnlColor(pnl)}}>
                      {pnl>=0?"+":""}{fmtUSD(pnl)}
                    </span>
@@ -1443,14 +1593,14 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
       {labView==="builder"&&(
         <div style={{display:"flex",flexDirection:"column",gap:5}}>
           {legs.some(l=>l.real)&&(
-            <div style={{display:"flex",gap:10,fontSize:9,color:"#555"}}>
+            <div style={{display:"flex",gap:10,fontSize:9,color:"#999"}}>
               <span><span style={{display:"inline-block",width:12,height:2,background:"#00e5a0",verticalAlign:"middle",marginRight:4}}/>Real</span>
               <span><span style={{display:"inline-block",width:12,height:2,background:"#4da8ff",verticalAlign:"middle",marginRight:4}}/>Theoretical</span>
               {legs.some(l=>l.closing)&&<span><span style={{display:"inline-block",width:12,height:2,background:"#f5a623",verticalAlign:"middle",marginRight:4}}/>Closing</span>}
             </div>
           )}
           {legs.length===0
-            ?<div style={{padding:"16px",fontSize:10,color:"#333",textAlign:"center",
+            ?<div style={{padding:"16px",fontSize:10,color:"#666",textAlign:"center",
                 border:"1px dashed var(--border2)"}}>
                Click <b style={{color:"#00e5a0"}}>+ LEG</b> to add a theoretical leg ·
                or go to <b style={{color:"#4da8ff"}}>POSITIONS</b> to add real holdings
@@ -1675,7 +1825,7 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
               <span style={{width:7,height:7,borderRadius:"50%",display:"inline-block",
                 background:serverStatus.api==="up"?"#00e5a0":serverStatus.api==="checking"?"#f5a623":"#ff4d6d",
                 boxShadow:serverStatus.api==="up"?"0 0 6px #00e5a0":"none"}}/>
-              <span style={{fontSize:9,color:"#555",letterSpacing:"0.1em"}}>
+              <span style={{fontSize:9,color:"#999",letterSpacing:"0.1em"}}>
                 {serverStatus.api==="up"?"RUNNING":serverStatus.api==="checking"?"CHECKING":"DOWN"}
               </span>
             </div>
@@ -1693,7 +1843,7 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
               {polyOk?"● ":"○ "}POLYGON
             </span>
             {serverStatus.data_source&&(
-              <span style={{fontSize:9,color:"#444",padding:"2px 0"}}>{serverStatus.data_source}</span>
+              <span style={{fontSize:9,color:"#777",padding:"2px 0"}}>{serverStatus.data_source}</span>
             )}
           </div>
           {/* Stop Session */}
@@ -1707,9 +1857,17 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
           {[["portfolio","▤ PORTFOLIO"],["chain","◫ CHAIN"],["strategy","◆ STRATEGY"]].map(([v,label])=>(
             <button key={v} onClick={()=>setView(v)} className="side-nav-btn"
               style={{borderLeft:`2px solid ${view===v?"var(--green)":"transparent"}`,
-                color:view===v?"var(--green)":"#666",
-                background:view===v?"rgba(0,229,160,0.04)":"none"}}>
-              {label}
+                color:view===v?"var(--green)":"#999",
+                background:view===v?"rgba(0,229,160,0.04)":"none",
+                display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              <span>{label}</span>
+              {v==="portfolio"&&portData?.summary?.total_pnl!=null&&(
+                <span style={{fontSize:9,
+                  color:portData.summary.total_pnl>=0?"#00e5a0":"#ff4d6d",
+                  fontWeight:600}}>
+                  {portData.summary.total_pnl>=0?"+":""}{fmtUSD(portData.summary.total_pnl)}
+                </span>
+              )}
             </button>
           ))}
         </SideSection>
@@ -1724,7 +1882,7 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
               <button onClick={addWatch} className="side-add-btn">+</button>
             </div>
           </div>
-          {watchlist.length===0&&<div style={{padding:"6px 12px",fontSize:10,color:"#333"}}>No tickers</div>}
+          {watchlist.length===0&&<div style={{padding:"6px 12px",fontSize:10,color:"#666"}}>No tickers</div>}
           {watchlist.map(t=>(
             <div key={t} className="watch-row" onClick={()=>onOpenTicker(t)}>
               <span style={{fontWeight:700,color:"#fff",fontSize:11,width:48}}>{t}</span>
@@ -1738,21 +1896,26 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
 
         {/* ── POSITIONS quick-view ── */}
         <SideSection label="POSITIONS" open={sections.positions} onToggle={()=>toggle("positions")}
-          badge={portData?.alerts?.length||null}>
+          badge={portData?.alerts?.length||null}
+          headerAction={<button onClick={()=>setView("portfolio")}
+            style={{fontSize:9,color:"#00e5a0",background:"none",border:"none",
+              cursor:"pointer",fontFamily:"var(--mono)",padding:"0 4px",letterSpacing:"0.06em"}}
+            onMouseEnter={e=>e.target.style.color="#fff"}
+            onMouseLeave={e=>e.target.style.color="#00e5a0"}>
+            VIEW →
+          </button>}>
           {(!portData?.positions?.length)
-            ? <div style={{padding:"6px 12px",fontSize:10,color:"#333"}}>No positions</div>
+            ? <div style={{padding:"6px 12px",fontSize:10,color:"#666"}}>No positions</div>
             : portData.positions.map((p,i)=>(
               <div key={i} className="watch-row" onClick={()=>{onOpenTicker(p.ticker);setView("chain");}}>
                 <span style={{fontWeight:700,color:"#fff",width:42,fontSize:10}}>{p.ticker}</span>
-                <span style={{color:"#555",fontSize:9}}>{p.type[0].toUpperCase()} {fmt(p.strike)}</span>
+                <span style={{color:"#999",fontSize:9}}>{p.type[0].toUpperCase()} {fmt(p.strike)}</span>
                 <span style={{marginLeft:"auto",color:pnlColor(p.pnl),fontWeight:600,fontSize:10}}>
                   {p.pnl>=0?"+":""}{fmtUSD(p.pnl)}</span>
                 {p.alerts?.length>0&&<span style={{color:"#f5a623",fontSize:10}}>⚠</span>}
               </div>
             ))}
-          <div style={{padding:"6px 12px 8px"}}>
-            <button onClick={()=>setView("portfolio")} className="side-outline-btn">VIEW PORTFOLIO →</button>
-          </div>
+
         </SideSection>
 
         {/* ── SETTINGS (contains API keys, portfolio import, brokers, display) ── */}
@@ -1760,12 +1923,12 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
 
           {/* Display */}
           <div style={{padding:"8px 14px 4px",borderBottom:"1px solid rgba(255,255,255,0.04)"}}>
-            <div style={{fontSize:9,color:"#444",letterSpacing:"0.12em",marginBottom:8}}>DISPLAY</div>
+            <div style={{fontSize:9,color:"#777",letterSpacing:"0.12em",marginBottom:8}}>DISPLAY</div>
             {[["Chain rows",settings.chainRows,[10,20,30,50],"chainRows"],
               ["Auto-refresh",settings.autoRefresh,["on","off"],"autoRefresh"]
             ].map(([label,val,opts,key])=>(
               <div key={key} style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
-                <span style={{fontSize:10,color:"#555"}}>{label}</span>
+                <span style={{fontSize:10,color:"#999"}}>{label}</span>
                 <div style={{display:"flex",gap:2}}>
                   {opts.map(o=>(
                     <button key={o} onClick={()=>{ const n={...settings,[key]:o}; setSettings(n); persist("optflow_settings",n); }}
@@ -1790,7 +1953,7 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
                 </div>
               ))}
               <div>
-                <div style={{fontSize:9,color:"#444",marginBottom:3}}>POLYGON KEY</div>
+                <div style={{fontSize:9,color:"#777",marginBottom:3}}>POLYGON KEY</div>
                 <div style={{display:"flex",gap:4}}>
                   <input type="password" value={polyKey} onChange={e=>setPolyKey(e.target.value)}
                     placeholder="polygon.io" className="side-input"/>
@@ -1799,7 +1962,7 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
                 </div>
               </div>
               <div>
-                <div style={{fontSize:9,color:"#444",marginBottom:3}}>TRADIER TOKEN</div>
+                <div style={{fontSize:9,color:"#777",marginBottom:3}}>TRADIER TOKEN</div>
                 <div style={{display:"flex",gap:4}}>
                   <input type="password" value={tradierKey} onChange={e=>setTradierKey(e.target.value)}
                     placeholder="tradier.com" className="side-input"/>
@@ -1816,7 +1979,7 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
             <div style={{padding:"6px 14px",display:"flex",flexDirection:"column",gap:8}}>
               <label style={{display:"flex",flexDirection:"column",alignItems:"center",
                 border:"1px dashed var(--border2)",padding:"10px 8px",cursor:"pointer",
-                fontSize:10,color:"#555",gap:3,transition:"all 0.15s",textAlign:"center"}}
+                fontSize:10,color:"#999",gap:3,transition:"all 0.15s",textAlign:"center"}}
                 onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--green)";e.currentTarget.style.color="var(--green)";}}
                 onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border2)";e.currentTarget.style.color="#555";}}>
                 <span style={{fontSize:14}}>↑</span>
@@ -1826,7 +1989,7 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
               {importMsg&&<div style={{fontSize:10,color:"#00e5a0"}}>{importMsg}</div>}
               {positions.length>0&&(
                 <>
-                  <div style={{fontSize:10,color:"#555"}}>{positions.length} position{positions.length!==1?"s":""} ready</div>
+                  <div style={{fontSize:10,color:"#999"}}>{positions.length} position{positions.length!==1?"s":""} ready</div>
                   <button onClick={savePortfolio} className="side-add-btn" style={{width:"100%",padding:"5px",fontSize:10}}>
                     SAVE TO PORTFOLIO
                   </button>
@@ -1839,7 +2002,7 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
           {/* Brokers sub-section */}
           <SideSection label="BROKERS" open={sections.settings_brokers} onToggle={()=>toggle("settings_brokers")} indent>
             <div style={{padding:"6px 14px",display:"flex",flexDirection:"column",gap:5}}>
-              <div style={{fontSize:10,color:"#444",lineHeight:1.5,marginBottom:2}}>
+              <div style={{fontSize:10,color:"#777",lineHeight:1.5,marginBottom:2}}>
                 Robinhood: export via Account → Statements → CSV.
               </div>
               {[["Tastytrade","https://www.tastytrade.com/api"],
@@ -1849,7 +2012,7 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
               ].map(([name,url])=>(
                 <a key={name} href={url} target="_blank"
                   style={{display:"flex",justifyContent:"space-between",
-                    fontSize:10,color:"#555",textDecoration:"none",padding:"3px 0",
+                    fontSize:10,color:"#999",textDecoration:"none",padding:"3px 0",
                     borderBottom:"1px solid var(--border)",transition:"color 0.15s"}}
                   onMouseEnter={e=>e.currentTarget.style.color="#4da8ff"}
                   onMouseLeave={e=>e.currentTarget.style.color="#555"}>
@@ -1863,7 +2026,7 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
 
         {/* ── Always-visible footer: source ── */}
         <div style={{marginTop:"auto",padding:"8px 12px",borderTop:"1px solid var(--border)",
-          fontSize:9,color:"#333",letterSpacing:"0.06em",flexShrink:0}}>
+          fontSize:9,color:"#666",letterSpacing:"0.06em",flexShrink:0}}>
           OPTFLOW v0.2 &nbsp;·&nbsp; {serverStatus.data_source||"—"}
         </div>
       </div>
@@ -1874,321 +2037,35 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
 // ── Pane ───────────────────────────────────────────────────────────────────────
 
 function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
-               fetchPortfolio,portLoading,recentTickers,setRecentTickers,compact,
-               view,setView,onOpenRight,role="left",onActiveTicker}) {
+               fetchPortfolio,portLoading,recentTickers,setRecentTickers,
+               view,setView,onOpenRight,onActiveTicker,serverStatus={}}) {
 
   const [activeTabId,setActiveTabId] = useState(tabs[0]?.id||1);
   const [inputTicker,setInput]       = useState("");
-  const [navStack,setNavStack]       = useState([]);  // [{view, tabId}]
-  const [labLegs,setLabLegs]         = useState([]);   // seed legs for LabPanel
+  const [navStack,setNavStack]       = useState([]);
   const dragIdx = useRef(null);
   const wsRefs  = useRef({});
 
-  // Push current state before any navigation
-  const pushNav = useCallback((currentView, currentTabId) => {
-    setNavStack(prev => [...prev.slice(-19), {view: currentView, tabId: currentTabId}]);
-  }, []);
-
-  const goBack = useCallback(() => {
-    setNavStack(prev => {
-      if (!prev.length) return prev;
-      const stack    = [...prev];
-      const last     = stack.pop();
-      setView(last.view);
-      setActiveTabId(last.tabId);
+  const pushNav = useCallback((v,id)=>{
+    setNavStack(prev=>[...prev.slice(-19),{view:v,tabId:id}]);
+  },[]);
+  const goBack = useCallback(()=>{
+    setNavStack(prev=>{
+      if(!prev.length) return prev;
+      const stack=[...prev], last=stack.pop();
+      setView(last.view); setActiveTabId(last.tabId);
       return stack;
     });
-  }, []);
+  },[]);
 
   const activeTab = tabs.find(t=>t.id===activeTabId)||tabs[0];
+
+  // Notify parent of active ticker for right pane sync
   useEffect(()=>{
-    if(onActiveTicker&&activeTab?.ticker) onActiveTicker(activeTab.ticker);
-  },[activeTab?.ticker]);
+    if(onActiveTicker&&activeTab?.ticker) onActiveTicker(activeTabId, activeTab.ticker);
+  },[activeTab?.ticker, activeTabId]);
 
-  useEffect(()=>{
-    const ticker=activeTab?.ticker;
-    if (!ticker||wsRefs.current[ticker]) return;
-    const ws=new WebSocket(`${WS}/stream?tickers=${ticker}`);
-    ws.onmessage=e=>{const d=JSON.parse(e.data);
-      setTabs(prev=>prev.map(t=>t.ticker===ticker?{...t,livePrice:d[ticker]}:t));};
-    ws.onerror=()=>ws.close();
-    ws.onclose=()=>{delete wsRefs.current[ticker];};
-    wsRefs.current[ticker]=ws;
-  },[activeTab?.ticker]);
-
-  const updateTab = useCallback((id,patch)=>{
-    setTabs(p=>p.map(t=>t.id===id?{...t,...patch}:t));
-  },[setTabs]);
-
-  const fetchChain = useCallback(async(id,tkr,exp)=>{
-    updateTab(id,{loading:true,error:null});
-    try {
-      const r=await fetch(`${API}/chain/${tkr}${exp?`?expiry=${exp}`:""}`);
-      if (!r.ok) throw new Error((await r.json()).detail);
-      const d=await r.json();
-      updateTab(id,{chainData:d,expiries:d.expiries||[],loading:false,expiry:exp||d.expiry});
-    } catch(e){ updateTab(id,{error:e.message,loading:false}); }
-  },[updateTab]);
-
-  const openTicker = useCallback((tkr)=>{
-    const ex=tabs.find(t=>t.ticker===tkr);
-    if (ex){
-      pushNav(view, activeTabId);
-      setActiveTabId(ex.id); setView("chain"); return;
-    }
-    pushNav(view, activeTabId);
-    const id=nextId; setNextId(n=>n+1);
-    setTabs(p=>[...p,{id,ticker:tkr,chainData:null,expiry:null,expiries:[],
-                       loading:false,error:null,activeType:"call",livePrice:null}]);
-    setActiveTabId(id); setView("chain");
-    fetchChain(id,tkr,null);
-    setRecentTickers(p=>{
-      const n=[tkr,...p.filter(r=>r!==tkr)].slice(0,8);
-      persist("optflow_recent",n); return n;
-    });
-  },[tabs,nextId,fetchChain,setTabs,setNextId,setRecentTickers]);
-
-  const closeTab = id=>{
-    if (tabs.length===1) return;
-    const idx=tabs.findIndex(t=>t.id===id);
-    const rem=tabs.filter(t=>t.id!==id);
-    setTabs(rem);
-    if (activeTabId===id) setActiveTabId(rem[Math.max(0,idx-1)]?.id||rem[0]?.id);
-  };
-
-  const handleSearch = e=>{
-    e.preventDefault();
-    const t=inputTicker.trim().toUpperCase();
-    if (!t) return;
-    setInput(""); openTicker(t);
-  };
-
-  const livePrice = activeTab?.livePrice||activeTab?.chainData?.spot;
-  const src = activeTab?.chainData?.source;
-
-  return (
-    <div style={{display:"flex",flexDirection:"column",flex:1,minWidth:0,overflow:"hidden",
-      borderRight:"1px solid var(--border)"}}>
-
-      {/* Pane header */}
-      <div style={{display:"flex",alignItems:"center",gap:8,padding:"3px 10px",
-        background:"var(--bg1)",borderBottom:"1px solid var(--border)",flexShrink:0,flexWrap:"wrap",rowGap:3}}>
-        {/* Back button */}
-        {navStack.length>0&&(
-          <button onClick={goBack} title={`Back to ${navStack[navStack.length-1].view}`}
-            style={{background:"none",border:"1px solid var(--border2)",color:"#555",
-              fontFamily:"var(--mono)",fontSize:11,padding:"3px 8px",cursor:"pointer",
-              transition:"all 0.15s",flexShrink:0,letterSpacing:0}}
-            onMouseEnter={e=>{e.currentTarget.style.color="var(--green)";e.currentTarget.style.borderColor="var(--green)";}}
-            onMouseLeave={e=>{e.currentTarget.style.color="#555";e.currentTarget.style.borderColor="var(--border2)";}}>
-            ← {navStack[navStack.length-1].view}
-          </button>
-        )}
-        <form onSubmit={handleSearch} style={{display:"flex"}}>
-          <input value={inputTicker} onChange={e=>setInput(e.target.value.toUpperCase())}
-            placeholder="TICKER" maxLength={6} className="ticker-input" style={{width:68}}/>
-          <button type="submit" className="search-btn" style={{padding:"3px 10px",fontSize:10}}>+</button>
-        </form>
-        {!compact&&recentTickers.slice(0,5).map(t=>{
-          const isOpen=!!tabs.find(tb=>tb.ticker===t);
-          return (
-            <button key={t} onClick={()=>openTicker(t)}
-              style={{background:"none",border:`1px solid ${isOpen?"rgba(0,229,160,0.3)":"#1c1c1c"}`,
-                color:isOpen?"#00e5a0":"#444",fontFamily:"var(--mono)",fontSize:9,
-                padding:"2px 6px",cursor:"pointer",transition:"all 0.15s"}}>
-              {t}
-            </button>
-          );
-        })}
-        <div style={{marginLeft:"auto",display:"flex",gap:2}}>
-          {["portfolio","chain","strategy","lab"].map(v=>(
-            <button key={v} onClick={()=>{ if(v!==view){pushNav(view,activeTabId);} setView(v); }}
-              style={{background:"none",border:`1px solid ${view===v?"var(--green)":"transparent"}`,
-                color:view===v?"var(--green)":"var(--muted)",fontFamily:"var(--mono)",
-                fontSize:10,padding:"2px 8px",cursor:"pointer",transition:"all 0.15s",letterSpacing:"0.06em"}}>
-              {v[0].toUpperCase()+v.slice(1)}
-            </button>
-          ))}
-        </div>
-        {view!=="portfolio"&&(
-          <div style={{display:"flex",alignItems:"baseline",gap:5,flexShrink:0}}>
-            <span style={{color:"#444",fontSize:10}}>{activeTab?.ticker}</span>
-            <span style={{fontSize:14,fontWeight:700,color:"#fff"}}>{livePrice?`$${fmt(livePrice)}`:"—"}</span>
-            {activeTab?.loading&&<span style={{color:"var(--green)",animation:"blink 1s step-start infinite",fontSize:9}}>●</span>}
-          </div>
-        )}
-      </div>
-
-      {/* Tab bar */}
-      <div style={{display:"flex",alignItems:"stretch",borderBottom:"1px solid var(--border)",
-        background:"var(--bg1)",overflowX:"auto",minHeight:26,flexShrink:0}}>
-        {tabs.map((tab,idx)=>(
-          <div key={tab.id} className={clsx("ticker-tab",tab.id===activeTabId&&"active")}
-            style={{minHeight:26,padding:"0 9px",fontSize:10}}
-            draggable
-            onDragStart={e=>{dragIdx.current=idx;e.dataTransfer.effectAllowed="move";}}
-            onDragOver={e=>{
-              e.preventDefault();
-              if(dragIdx.current===null||dragIdx.current===idx) return;
-              setTabs(prev=>{const n=[...prev];const[m]=n.splice(dragIdx.current,1);n.splice(idx,0,m);dragIdx.current=idx;return n;});
-            }}
-            onDragEnd={()=>{dragIdx.current=null;}}
-            onClick={()=>{
-              setActiveTabId(tab.id);
-              if(view==="portfolio") setView("chain");
-              if(!tab.chainData&&!tab.loading) fetchChain(tab.id,tab.ticker,null);
-            }}>
-            <span className="ticker-tab-name" style={{fontSize:10}}>{tab.ticker}</span>
-            {(tab.livePrice||tab.chainData?.spot)&&(
-              <span className="ticker-tab-price">${fmt(tab.livePrice||tab.chainData?.spot)}</span>
-            )}
-            {tab.loading&&<span style={{color:"var(--green)",fontSize:7,animation:"blink 1s step-start infinite"}}>●</span>}
-            <button className="ticker-tab-close" onClick={e=>{e.stopPropagation();closeTab(tab.id);}}>×</button>
-          </div>
-        ))}
-        <button className="tab-add-btn" style={{fontSize:14,padding:"0 10px"}}
-          onClick={()=>{const t=prompt("Ticker:");if(t)openTicker(t.trim().toUpperCase());}}>+</button>
-      </div>
-
-      {activeTab?.error&&view!=="portfolio"&&(
-        <div className="error-bar">⚠ {activeTab.error}</div>
-      )}
-
-      {/* Content */}
-      <div style={{flex:1,overflow:"auto",padding:"10px 14px",display:"flex",flexDirection:"column",gap:10}}>
-
-        {view==="portfolio"&&(
-          <>
-            <div style={{display:"flex",alignItems:"center",gap:10,paddingBottom:8,borderBottom:"1px solid var(--border)"}}>
-              <span className="section-label">PORTFOLIO</span>
-              <button onClick={fetchPortfolio} disabled={portLoading}
-                style={{background:"var(--green)",border:"none",color:"#000",fontFamily:"var(--mono)",
-                  fontSize:10,fontWeight:700,padding:"3px 10px",cursor:"pointer",opacity:portLoading?0.4:1}}>
-                {portLoading?"…":"REFRESH"}
-              </button>
-            </div>
-            {portLoading&&<div className="loading-bar">LOADING…</div>}
-            <PortfolioPanel data={portData} liveSpots={liveSpots} onTickerOpen={tkr=>{
-              if(onOpenRight){ onOpenRight(tkr); }
-              else { openTicker(tkr); setView("chain"); }
-            }}/>
-          </>
-        )}
-
-        {view==="chain"&&activeTab&&(
-          <>
-            <div className="controls-row">
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <span className="section-label">EXPIRY</span>
-                <select className="expiry-select" value={activeTab.expiry||""}
-                  onChange={e=>{updateTab(activeTab.id,{expiry:e.target.value});fetchChain(activeTab.id,activeTab.ticker,e.target.value);}}>
-                  {activeTab.expiries.map(e=><option key={e} value={e}>{e}</option>)}
-                </select>
-                {activeTab.chainData&&<span className="dte-badge">{activeTab.chainData.dte}d</span>}
-              </div>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <span className="section-label">IVR</span>
-                <IVGauge rank={activeTab.chainData?.iv_rank}/>
-                <span className="muted" style={{fontSize:10}}>{activeTab.chainData?fmtPct(activeTab.chainData.atm_iv):"—"}</span>
-              </div>
-              <div style={{display:"flex",gap:0,marginLeft:"auto"}}>
-                {["call","put"].map(t=>(
-                  <button key={t} className={clsx("type-btn",activeTab.activeType===t&&"active")}
-                    onClick={()=>updateTab(activeTab.id,{activeType:t})}>{t.toUpperCase()}S</button>
-                ))}
-              </div>
-              <span style={{fontSize:10,color:["tradier","polygon"].includes(src)?"#00e5a0":"#555"}}>
-                {src==="tradier"?"● LIVE":src==="polygon"?"● LIVE":"○ DELAYED"}
-              </span>
-            </div>
-            {activeTab.chainData?.signals&&(
-              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                {Object.values(activeTab.chainData.signals).map((s,i)=>(
-                  <SignalChip key={i} action={s.action} reason={s.reason}/>
-                ))}
-              </div>
-            )}
-            {activeTab.loading&&<div className="loading-bar">FETCHING…</div>}
-            {activeTab.chainData
-              ?<ChainTable chain={activeTab.chainData.chain} spot={activeTab.chainData.spot} activeType={activeTab.activeType}
-                  onRowClick={row=>{
-                    const leg={id:1,type:row.type,dir:"long",strike:row.strike,
-                      iv:row.iv||0.25,qty:1,dte:activeTab.chainData.dte||30,entry:row.mid||row.ask||0};
-                    if(onOpenRight){
-                      onOpenRight(activeTab.ticker,[leg]);
-                    } else {
-                      pushNav(view,activeTabId);
-                      setLabLegs([leg]);
-                      setView("lab");
-                    }
-                  }}/>
-              :!activeTab.loading&&<div className="panel-empty">Enter a ticker and press +</div>}
-            {activeTab.chainData&&<IVChart ticker={activeTab.ticker}/>}
-          </>
-        )}
-
-        {view==="lab"&&activeTab&&(
-          <LabPanel
-            chainData={activeTab.chainData}
-            seedLegs={labLegs}
-            chainExpiries={activeTab?.expiries||[]}
-            liveSpots={liveSpots}
-            onClose={()=>{ pushNav(view,activeTabId); setView("strategy"); }}
-          />
-        )}
-
-        {view==="strategy"&&activeTab&&(
-          <>
-            <div className="controls-row">
-              <span className="section-label">STRATEGY — {activeTab.ticker}</span>
-              {!activeTab.chainData&&!activeTab.loading&&(
-                <button onClick={()=>fetchChain(activeTab.id,activeTab.ticker,null)}
-                  style={{background:"var(--green)",border:"none",color:"#000",fontFamily:"var(--mono)",
-                    fontSize:10,fontWeight:700,padding:"3px 10px",cursor:"pointer"}}>LOAD CHAIN</button>
-              )}
-            </div>
-            <StrategyPanel chainData={activeTab.chainData}
-              onLabOpen={legs=>{
-                if(onOpenRight){ onOpenRight(activeTab.ticker, legs); }
-                else { pushNav(view,activeTabId); setLabLegs(legs); setView("lab"); }
-              }}/>
-          </>
-        )}
-      </div>
-
-      {/* Pane footer */}
-      <div style={{display:"flex",alignItems:"center",gap:8,padding:"4px 14px",
-        borderTop:"1px solid var(--border)",fontSize:10,color:"var(--muted)",
-        background:"var(--bg1)",flexShrink:0}}>
-        <span
-          style={{color:src==="tradier"?"#00e5a0":src==="polygon"?"#4da8ff":activeTab?.chainData?"#555":"#2a2a2a"}}
-          title={src==="tradier"?"Real-time via Tradier":src==="polygon"?"Real-time via Polygon":"15-min delayed via yfinance"}>
-          {src==="tradier"?"● TRADIER":src==="polygon"?"● POLYGON":activeTab?.chainData?"○ YFINANCE (DELAYED)":"—"}
-        </span>
-        <span className="muted">·</span>
-        <span style={{color:"#2a2a2a"}}>{activeTab?.chainData?.fetched_at||""}</span>
-        <span style={{marginLeft:"auto",color:"#2a2a2a"}}>{tabs.length} tab{tabs.length!==1?"s":""}</span>
-      </div>
-    </div>
-  );
-}
-
-// ── App ────────────────────────────────────────────────────────────────────────
-
-
-// ── AnalysisPane — right panel: strategy + lab combined ───────────────────────
-
-function AnalysisPane({tabs,setTabs,nextId,setNextId,liveSpots,
-                       labLegs,setLabLegs,view,setView,onClose,portData,serverStatus={},
-                       followTicker=null,pinned=false,onTogglePin}) {
-
-  const [activeTabId,setActiveTabId] = useState(tabs[0]?.id||1);
-  const wsRefs = useRef({});
-
-  const activeTab = tabs.find(t=>t.id===activeTabId)||tabs[0];
-  const chainData = activeTab?.chainData;
-
-  // Keep tabs in sync with liveSpots via WS
+  // WS live price
   useEffect(()=>{
     const ticker=activeTab?.ticker;
     if(!ticker||wsRefs.current[ticker]) return;
@@ -2214,193 +2091,395 @@ function AnalysisPane({tabs,setTabs,nextId,setNextId,liveSpots,
     } catch(e){ updateTab(id,{error:e.message,loading:false}); }
   },[updateTab]);
 
-  // Auto-fetch chain when tab switches without data
+  const openTicker = useCallback((tkr)=>{
+    const ex=tabs.find(t=>t.ticker===tkr);
+    if(ex){
+      pushNav(view,activeTabId);
+      setActiveTabId(ex.id); setView("chain"); return;
+    }
+    pushNav(view,activeTabId);
+    const id=nextId; setNextId(n=>n+1);
+    setTabs(p=>[...p,{id,ticker:tkr,chainData:null,expiry:null,expiries:[],
+                       loading:false,error:null,activeType:"call",livePrice:null}]);
+    setActiveTabId(id); setView("chain");
+    fetchChain(id,tkr,null);
+    setRecentTickers(p=>{
+      const n=[tkr,...p.filter(r=>r!==tkr)].slice(0,8);
+      persist("optflow_recent",n); return n;
+    });
+  },[tabs,nextId,fetchChain,setTabs,setNextId,setRecentTickers,view,activeTabId,pushNav]);
+
+  const closeTab = id=>{
+    if(tabs.length===1) return;
+    const idx=tabs.findIndex(t=>t.id===id);
+    const rem=tabs.filter(t=>t.id!==id);
+    setTabs(rem);
+    if(activeTabId===id) setActiveTabId(rem[Math.max(0,idx-1)]?.id||rem[0]?.id);
+  };
+
+  const handleSearch = e=>{
+    e.preventDefault();
+    const t=inputTicker.trim().toUpperCase();
+    if(!t) return;
+    setInput(""); openTicker(t);
+  };
+
+  const livePrice = activeTab?.livePrice||activeTab?.chainData?.spot;
+  const src = activeTab?.chainData?.source;
+
+  return (
+    <div style={{display:"flex",flexDirection:"column",flex:1,minWidth:0,
+      overflow:"hidden",borderRight:"1px solid var(--border)"}}>
+
+      {/* Header: ticker tabs + view toggle + search */}
+      <div style={{display:"flex",alignItems:"center",gap:6,padding:"3px 8px",
+        background:"var(--bg1)",borderBottom:"1px solid var(--border)",
+        flexShrink:0,flexWrap:"wrap",rowGap:3}}>
+
+        {/* Ticker tabs */}
+        <div style={{display:"flex",alignItems:"stretch",overflowX:"auto",flex:1,minWidth:0}}>
+          {tabs.map(tab=>{
+            const isOpen=tab.id===activeTabId;
+            return (
+              <div key={tab.id}
+                className={clsx("ticker-tab",isOpen&&"active")}
+                onClick={()=>{setActiveTabId(tab.id);setView("chain");}}
+                style={{position:"relative",flexShrink:0}}>
+                <span className="ticker-tab-name">{tab.ticker}</span>
+                {(tab.livePrice||tab.chainData?.spot)&&(
+                  <span className="ticker-tab-price">
+                    ${fmt(tab.livePrice||tab.chainData?.spot)}
+                  </span>
+                )}
+                {tab.loading&&<span style={{color:"var(--green)",fontSize:7,
+                  animation:"blink 1s step-start infinite"}}>●</span>}
+                {tabs.length>1&&(
+                  <span onClick={e=>{e.stopPropagation();closeTab(tab.id);}}
+                    style={{marginLeft:4,color:"#444",cursor:"pointer",fontSize:10,
+                      lineHeight:1,transition:"color 0.15s"}}
+                    onMouseEnter={e=>e.target.style.color="var(--red)"}
+                    onMouseLeave={e=>e.target.style.color="#444"}>×</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* View toggle — portfolio or chain only */}
+        <div style={{display:"flex",gap:2,flexShrink:0}}>
+          {[["portfolio","▤"],["chain","◫"]].map(([v,icon])=>(
+            <button key={v} onClick={()=>{if(v!==view){pushNav(view,activeTabId);}setView(v);}}
+              title={v==="portfolio"?"Portfolio overview":"Options chain"}
+              style={{background:view===v?"rgba(0,229,160,0.08)":"none",
+                border:`1px solid ${view===v?"rgba(0,229,160,0.4)":"transparent"}`,
+                color:view===v?"var(--green)":"var(--muted)",fontFamily:"var(--mono)",
+                fontSize:12,padding:"2px 7px",cursor:"pointer",transition:"all 0.15s"}}>
+              {icon}
+            </button>
+          ))}
+        </div>
+
+        {/* Back button */}
+        {navStack.length>0&&(
+          <button onClick={goBack}
+            title={`Back to ${navStack[navStack.length-1].view}`}
+            style={{background:"none",border:"1px solid var(--border2)",color:"var(--muted)",
+              fontFamily:"var(--mono)",fontSize:10,padding:"2px 7px",cursor:"pointer",
+              transition:"all 0.15s",flexShrink:0}}
+            onMouseEnter={e=>{e.currentTarget.style.color="var(--green)";e.currentTarget.style.borderColor="var(--green)";}}
+            onMouseLeave={e=>{e.currentTarget.style.color="var(--muted)";e.currentTarget.style.borderColor="var(--border2)";}}>
+            ← {navStack[navStack.length-1].view}
+          </button>
+        )}
+
+        {/* Search */}
+        <form onSubmit={handleSearch} style={{display:"flex",flexShrink:0}}>
+          <input value={inputTicker}
+            onChange={e=>setInput(e.target.value.toUpperCase())}
+            placeholder="TICKER" maxLength={6}
+            className="ticker-input" style={{width:64}}/>
+          <button type="submit" className="search-btn"
+            style={{padding:"3px 8px",fontSize:10}}>+</button>
+        </form>
+      </div>
+
+      {/* Error bar */}
+      {activeTab?.error&&view==="chain"&&(
+        <div className="error-bar">⚠ {activeTab.error}</div>
+      )}
+
+      {/* Recent tickers */}
+      {recentTickers.length>0&&view==="chain"&&(
+        <div style={{display:"flex",gap:4,padding:"4px 10px",flexWrap:"wrap",
+          borderBottom:"1px solid var(--border)",background:"var(--bg1)",flexShrink:0}}>
+          {recentTickers.slice(0,6).map(t=>{
+            const isOpen=tabs.some(tb=>tb.ticker===t);
+            return (
+              <button key={t} onClick={()=>openTicker(t)}
+                style={{background:"none",
+                  border:`1px solid ${isOpen?"rgba(0,229,160,0.3)":"#1c1c1c"}`,
+                  color:isOpen?"var(--green)":"#666",fontFamily:"var(--mono)",
+                  fontSize:9,padding:"1px 7px",cursor:"pointer",transition:"all 0.15s"}}
+                onMouseEnter={e=>{e.currentTarget.style.color="var(--green)";e.currentTarget.style.borderColor="rgba(0,229,160,0.3)";}}
+                onMouseLeave={e=>{e.currentTarget.style.color=isOpen?"var(--green)":"#666";e.currentTarget.style.borderColor=isOpen?"rgba(0,229,160,0.3)":"#1c1c1c";}}>
+                {t}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Content */}
+      <div style={{flex:1,overflow:"auto",display:"flex",flexDirection:"column"}}>
+
+        {/* Portfolio view */}
+        {view==="portfolio"&&(
+          <>
+            {portLoading&&<div className="loading-bar">LOADING…</div>}
+            <PortfolioPanel data={portData} liveSpots={liveSpots} onTickerOpen={tkr=>{
+              openTicker(tkr);
+              if(onOpenRight) onOpenRight(tkr);
+            }}/>
+          </>
+        )}
+
+        {/* Chain view */}
+        {view==="chain"&&activeTab&&(
+          <>
+            {activeTab.loading&&<div className="loading-bar">FETCHING CHAIN…</div>}
+            {!activeTab.chainData&&!activeTab.loading&&(
+              <div className="panel-empty">
+                <div style={{marginBottom:8}}>{activeTab.ticker}</div>
+                <button onClick={()=>fetchChain(activeTab.id,activeTab.ticker,null)}
+                  className="search-btn" style={{padding:"4px 16px",fontSize:10}}>
+                  LOAD CHAIN
+                </button>
+              </div>
+            )}
+            {activeTab.chainData&&(
+              <div style={{padding:"8px 12px",display:"flex",flexDirection:"column",gap:8}}>
+                {/* Chain controls */}
+                <div className="controls-row">
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span className="section-label">EXPIRY</span>
+                    <select className="expiry-select" value={activeTab.expiry||""}
+                      onChange={e=>{updateTab(activeTab.id,{expiry:e.target.value});
+                        fetchChain(activeTab.id,activeTab.ticker,e.target.value);}}>
+                      {activeTab.expiries.map(e=><option key={e} value={e}>{e}</option>)}
+                    </select>
+                    {activeTab.chainData&&<span className="dte-badge">{activeTab.chainData.dte}d</span>}
+                  </div>
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span className="section-label">IVR</span>
+                    <IVGauge rank={activeTab.chainData.iv_rank}/>
+                    <span className="muted" style={{fontSize:10}}>
+                      {fmtPct(activeTab.chainData.atm_iv)}
+                    </span>
+                  </div>
+                  <div style={{display:"flex",gap:0,marginLeft:"auto"}}>
+                    {["call","put"].map(t=>(
+                      <button key={t} className={clsx("type-btn",activeTab.activeType===t&&"active")}
+                        onClick={()=>updateTab(activeTab.id,{activeType:t})}>
+                        {t.toUpperCase()}S
+                      </button>
+                    ))}
+                  </div>
+                  <span style={{fontSize:10,
+                    color:["tradier","polygon"].includes(src)?"#00e5a0":"#888"}}>
+                    {src==="tradier"?"● LIVE":src==="polygon"?"● LIVE":"○ DELAYED"}
+                  </span>
+                </div>
+                {/* Signals */}
+                {activeTab.chainData.signals&&(
+                  <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                    {Object.values(activeTab.chainData.signals).map((s,i)=>(
+                      <SignalChip key={i} action={s.action} reason={s.reason}/>
+                    ))}
+                  </div>
+                )}
+                {/* Chain table — row click opens analysis in right pane */}
+                <ChainTable
+                  chain={activeTab.chainData.chain}
+                  spot={activeTab.chainData.spot}
+                  activeType={activeTab.activeType}
+                  onRowClick={row=>{
+                    const leg={id:1,type:row.type,dir:"long",strike:row.strike,
+                      iv:row.iv||0.25,qty:1,dte:activeTab.chainData.dte||30,
+                      expiry:activeTab.expiry||"",entry:row.mid||row.ask||0};
+                    if(onOpenRight) onOpenRight(activeTab.ticker,[leg]);
+                  }}/>
+                {/* IV chart */}
+                <IVChart ticker={activeTab.ticker}/>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Footer */}
+      <div style={{display:"flex",alignItems:"center",gap:8,padding:"3px 12px",
+        borderTop:"1px solid var(--border)",fontSize:10,
+        background:"var(--bg1)",flexShrink:0}}>
+        <span style={{color:src==="tradier"||serverStatus.tradier_active?"#00e5a0":
+                           src==="polygon"||serverStatus.polygon_active?"#4da8ff":"#888"}}
+          title={src==="tradier"?"Real-time (Tradier)":src==="polygon"?"Real-time (Polygon)":
+                 !activeTab?.chainData&&serverStatus.tradier_active?"Tradier active":
+                 "15-min delayed (yfinance)"}>
+          {src==="tradier"?"● TRADIER":src==="polygon"?"● POLYGON":
+           activeTab?.chainData?(serverStatus.tradier_active?"● TRADIER":"○ YFINANCE (DELAYED)"):
+           serverStatus.tradier_active?"● TRADIER":"—"}
+        </span>
+        <span className="muted">·</span>
+        <span style={{color:"#555"}}>{activeTab?.chainData?.fetched_at||""}</span>
+        <span style={{marginLeft:"auto",color:"#555"}}>
+          {tabs.length} tab{tabs.length!==1?"s":""}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function AnalysisPane({tabs,setTabs,activeTabId,liveSpots,
+                       labLegs,setLabLegs,onClose,portData,serverStatus={},
+                       pinned=false,onTogglePin}) {
+
+  const wsRefs = useRef({});
+  const activeTab = tabs.find(t=>t.id===activeTabId)||tabs[0];
+  const chainData = activeTab?.chainData;
+
+  // WS live price for this tab
+  useEffect(()=>{
+    const ticker=activeTab?.ticker;
+    if(!ticker||wsRefs.current[ticker]) return;
+    const ws=new WebSocket(`${WS}/stream?tickers=${ticker}`);
+    ws.onmessage=e=>{const d=JSON.parse(e.data);
+      setTabs(prev=>prev.map(t=>t.ticker===ticker?{...t,livePrice:d[ticker]}:t));};
+    ws.onerror=()=>ws.close();
+    ws.onclose=()=>{delete wsRefs.current[ticker];};
+    wsRefs.current[ticker]=ws;
+  },[activeTab?.ticker]);
+
+  const updateTab = useCallback((id,patch)=>{
+    setTabs(p=>p.map(t=>t.id===id?{...t,...patch}:t));
+  },[setTabs]);
+
+  const fetchChain = useCallback(async(id,tkr,exp)=>{
+    updateTab(id,{loading:true,error:null});
+    try {
+      const r=await fetch(`${API}/chain/${tkr}${exp?`?expiry=${exp}`:""}`);
+      if(!r.ok) throw new Error((await r.json()).detail);
+      const d=await r.json();
+      updateTab(id,{chainData:d,expiries:d.expiries||[],loading:false,expiry:exp||d.expiry});
+    } catch(e){ updateTab(id,{error:e.message,loading:false}); }
+  },[updateTab]);
+
+  // Auto-fetch when switching to a tab with no chain data
   useEffect(()=>{
     if(activeTab&&!activeTab.chainData&&!activeTab.loading){
       fetchChain(activeTab.id, activeTab.ticker, null);
     }
   },[activeTab?.id]);
 
-  // Follow left pane ticker when not pinned
-  useEffect(()=>{
-    if(!followTicker) return;
-    const existing = tabs.find(t=>t.ticker===followTicker);
-    if(existing){
-      setActiveTabId(existing.id);
-    } else {
-      const id=nextId; setNextId(n=>n+1);
-      setTabs(prev=>{
-        if(prev.find(t=>t.ticker===followTicker)) return prev;
-        return [...prev,{id,ticker:followTicker,chainData:null,expiry:null,
-                          expiries:[],loading:false,error:null,activeType:"call",livePrice:null}];
-      });
-      setActiveTabId(id);
-    }
-  },[followTicker]);
-
   const livePrice = activeTab?.livePrice||chainData?.spot;
-  const src = chainData?.source;
+  const src       = chainData?.source;
 
   return (
     <div style={{display:"flex",flexDirection:"column",flex:1,minWidth:0,
       overflow:"hidden",borderLeft:"1px solid var(--border)"}}>
 
-      {/* Analysis pane header */}
+      {/* Header */}
       <div style={{display:"flex",alignItems:"center",gap:8,padding:"3px 10px",
-        background:"var(--bg1)",borderBottom:"1px solid var(--border)",
-        flexShrink:0,flexWrap:"wrap",rowGap:3}}>
+        background:"var(--bg1)",borderBottom:"1px solid var(--border)",flexShrink:0}}>
 
-        {/* Ticker tabs */}
-        <div style={{display:"flex",alignItems:"stretch",overflowX:"auto",flex:1,minWidth:0}}>
-          {tabs.map(tab=>(
-            <div key={tab.id}
-              className={clsx("ticker-tab",tab.id===activeTabId&&"active")}
-              style={{fontSize:10,padding:"0 8px",minHeight:26,cursor:"pointer"}}
-              onClick={()=>setActiveTabId(tab.id)}>
-              <span className="ticker-tab-name" style={{fontSize:10}}>{tab.ticker}</span>
-              {(tab.livePrice||tab.chainData?.spot)&&(
-                <span className="ticker-tab-price">${fmt(tab.livePrice||tab.chainData?.spot)}</span>
-              )}
-              {tab.loading&&<span style={{color:"var(--green)",fontSize:7,
-                animation:"blink 1s step-start infinite"}}>●</span>}
-            </div>
-          ))}
+        {/* Ticker + price */}
+        <div style={{display:"flex",alignItems:"center",gap:6,flex:1,minWidth:0}}>
+          {activeTab?.ticker&&(
+            <span style={{fontSize:13,fontWeight:700,color:"#fff"}}>
+              {activeTab.ticker}
+            </span>
+          )}
+          {livePrice&&(
+            <span style={{fontSize:12,color:"#ccc"}}>${fmt(livePrice)}</span>
+          )}
+          {activeTab?.loading&&(
+            <span style={{color:"var(--green)",fontSize:8,
+              animation:"blink 1s step-start infinite"}}>●</span>
+          )}
+          {chainData&&(
+            <span style={{fontSize:9,color:"#666",marginLeft:4}}>
+              IVR <b style={{color:chainData.iv_rank<30?"#00e5a0":
+                chainData.iv_rank>70?"#ff4d6d":"#f5a623"}}>
+                {fmt(chainData.iv_rank,1)}</b>
+              &nbsp;·&nbsp;{chainData.dte}d
+              &nbsp;·&nbsp;<span style={{color:"#4da8ff"}}>{fmtPct(chainData.atm_iv)}</span>
+            </span>
+          )}
         </div>
 
-        {/* View toggle */}
-        <div style={{display:"flex",gap:2,flexShrink:0}}>
-          {[["analysis","◆ ANALYSIS"],["chain","◫ CHAIN"]].map(([v,label])=>(
-            <button key={v} onClick={()=>setView(v)}
-              style={{background:view===v?"rgba(0,229,160,0.08)":"none",
-                border:`1px solid ${view===v?"rgba(0,229,160,0.4)":"transparent"}`,
-                color:view===v?"var(--green)":"#555",fontFamily:"var(--mono)",
-                fontSize:10,padding:"2px 8px",cursor:"pointer",
-                transition:"all 0.15s",letterSpacing:"0.06em"}}>
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* Ticker info + close */}
-        {livePrice&&(
-          <span style={{fontSize:13,fontWeight:700,color:"#fff",flexShrink:0}}>
-            {activeTab?.ticker} ${fmt(livePrice)}
-          </span>
-        )}
-        {activeTab?.loading&&(
-          <span style={{color:"var(--green)",animation:"blink 1s step-start infinite",fontSize:9}}>●</span>
-        )}
-        {/* Pin button */}
-        <button onClick={onTogglePin} title={pinned?"Unpin (follow left pane)":"Pin to current ticker"}
+        {/* Pin + close */}
+        <button onClick={onTogglePin}
+          title={pinned?"Unpin (follow left pane)":"Pin to current ticker"}
           style={{background:pinned?"rgba(245,166,35,0.1)":"none",
             border:`1px solid ${pinned?"rgba(245,166,35,0.4)":"var(--border2)"}`,
-            color:pinned?"#f5a623":"#555",fontFamily:"var(--mono)",
-            fontSize:10,padding:"2px 8px",cursor:"pointer",transition:"all 0.15s",
-            flexShrink:0}}
+            color:pinned?"#f5a623":"var(--muted)",fontFamily:"var(--mono)",
+            fontSize:9,padding:"2px 8px",cursor:"pointer",transition:"all 0.15s"}}
           onMouseEnter={e=>{e.currentTarget.style.borderColor="#f5a623";e.currentTarget.style.color="#f5a623";}}
-          onMouseLeave={e=>{if(!pinned){e.currentTarget.style.borderColor="var(--border2)";e.currentTarget.style.color="#555";}}}>
+          onMouseLeave={e=>{if(!pinned){e.currentTarget.style.borderColor="var(--border2)";e.currentTarget.style.color="var(--muted)";}}}>
           {pinned?"📌 PINNED":"○ PIN"}
         </button>
-        <button onClick={onClose} title="Close analysis pane"
-          style={{background:"none",border:"1px solid var(--border2)",color:"#444",
-            fontFamily:"var(--mono)",fontSize:10,padding:"2px 6px",cursor:"pointer",
-            transition:"all 0.15s",flexShrink:0}}
+        <button onClick={onClose}
+          style={{background:"none",border:"1px solid var(--border2)",
+            color:"var(--muted)",fontFamily:"var(--mono)",fontSize:10,
+            padding:"2px 6px",cursor:"pointer",transition:"all 0.15s"}}
           onMouseEnter={e=>{e.currentTarget.style.color="var(--red)";e.currentTarget.style.borderColor="var(--red)";}}
-          onMouseLeave={e=>{e.currentTarget.style.color="#444";e.currentTarget.style.borderColor="var(--border2)";}}>
+          onMouseLeave={e=>{e.currentTarget.style.color="var(--muted)";e.currentTarget.style.borderColor="var(--border2)";}}>
           ✕
         </button>
       </div>
 
-      {/* Error bar */}
-      {activeTab?.error&&(
-        <div className="error-bar">⚠ {activeTab.error}</div>
-      )}
+      {/* Error */}
+      {activeTab?.error&&<div className="error-bar">⚠ {activeTab.error}</div>}
 
-      {/* Content */}
+      {/* Content — pure analysis */}
       <div style={{flex:1,overflow:"auto",display:"flex",flexDirection:"column"}}>
-        {!chainData&&!activeTab?.loading&&(
-          <div className="panel-empty">Loading chain data…</div>
-        )}
-        {activeTab?.loading&&(
+        {!chainData&&activeTab?.loading&&(
           <div className="loading-bar">FETCHING CHAIN…</div>
         )}
-
-        {chainData&&view==="analysis"&&(
+        {!chainData&&!activeTab?.loading&&(
+          <div className="panel-empty">Select a ticker in the left pane</div>
+        )}
+        {chainData&&(
           <div style={{display:"flex",flexDirection:"column",flex:1}}>
-            {/* Compact strategy ranking */}
+            {/* Strategy panel */}
             <div style={{padding:"8px 12px",borderBottom:"1px solid var(--border)",
               background:"var(--bg1)",flexShrink:0}}>
-              <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
-                <span className="section-label">STRATEGY</span>
-                <span style={{fontSize:10,color:"#444"}}>
-                  IVR <b style={{color:chainData.iv_rank<30?"#00e5a0":chainData.iv_rank>70?"#ff4d6d":"#f5a623"}}>
-                    {fmt(chainData.iv_rank,1)}</b>
-                  &nbsp;·&nbsp;DTE <b style={{color:"#fff"}}>{chainData.dte}</b>
-                  &nbsp;·&nbsp;<b style={{color:"#4da8ff"}}>{fmtPct(chainData.atm_iv)}</b> ATM IV
-                </span>
-              </div>
               <StrategyPanel chainData={chainData}
-                onLabOpen={legs=>{ setLabLegs(legs); setView("analysis"); }}/>
+                onLabOpen={legs=>{setLabLegs(legs);}}/>
             </div>
-
-            {/* Lab below strategy */}
+            {/* Lab panel */}
             <LabPanel chainData={chainData} seedLegs={labLegs}
               portData={portData} onClose={null}
               chainExpiries={activeTab?.expiries||[]}
               liveSpots={liveSpots}/>
           </div>
         )}
-
-        {chainData&&view==="chain"&&(
-          <div style={{padding:"10px 12px",display:"flex",flexDirection:"column",gap:10}}>
-            <div className="controls-row">
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <span className="section-label">EXPIRY</span>
-                <select className="expiry-select" value={activeTab.expiry||""}
-                  onChange={e=>{updateTab(activeTab.id,{expiry:e.target.value});
-                    fetchChain(activeTab.id,activeTab.ticker,e.target.value);}}>
-                  {activeTab.expiries.map(e=><option key={e} value={e}>{e}</option>)}
-                </select>
-                <span className="dte-badge">{chainData.dte}d</span>
-              </div>
-              <div style={{display:"flex",alignItems:"center",gap:8}}>
-                <span className="section-label">IVR</span>
-                <IVGauge rank={chainData.iv_rank}/>
-              </div>
-              <div style={{display:"flex",gap:0,marginLeft:"auto"}}>
-                {["call","put"].map(t=>(
-                  <button key={t} className={clsx("type-btn",activeTab.activeType===t&&"active")}
-                    onClick={()=>updateTab(activeTab.id,{activeType:t})}>{t.toUpperCase()}S</button>
-                ))}
-              </div>
-            </div>
-            <ChainTable chain={chainData.chain} spot={chainData.spot}
-              activeType={activeTab.activeType}
-              onRowClick={row=>{
-                setLabLegs([{id:1,type:row.type,dir:"long",strike:row.strike,
-                  iv:row.iv||0.25,qty:1,dte:chainData.dte||30,entry:row.mid||row.ask||0}]);
-                setView("analysis");
-              }}/>
-          </div>
-        )}
       </div>
 
       {/* Footer */}
-      <div style={{display:"flex",alignItems:"center",gap:8,padding:"4px 12px",
-        borderTop:"1px solid var(--border)",fontSize:10,color:"var(--muted)",
+      <div style={{display:"flex",alignItems:"center",gap:8,padding:"3px 12px",
+        borderTop:"1px solid var(--border)",fontSize:10,
         background:"var(--bg1)",flexShrink:0}}>
-        <span style={{color:src==="tradier"||serverStatus.tradier_active?"#00e5a0":
-                        src==="polygon"||serverStatus.polygon_active?"#4da8ff":chainData?"#555":"#2a2a2a"}}
-          title={src==="tradier"?"Real-time via Tradier (this chain)":
-                 serverStatus.tradier_active?"Tradier active (chain not yet loaded)":
-                 src==="polygon"?"Real-time via Polygon":"15-min delayed via yfinance"}>
-          {src==="tradier"?"● TRADIER":
-           src==="polygon"?"● POLYGON":
-           chainData?(serverStatus.tradier_active?"● TRADIER (loading)":"○ YFINANCE"):
-           serverStatus.tradier_active?"● TRADIER":"—"}
+        <span style={{color:src==="tradier"?"#00e5a0":src==="polygon"?"#4da8ff":
+                           !chainData&&serverStatus.tradier_active?"#00e5a0":"#888"}}
+          title={src==="tradier"?"Real-time (Tradier)":src==="polygon"?"Real-time (Polygon)":
+                 !chainData&&serverStatus.tradier_active?"Tradier active — awaiting chain":
+                 "15-min delayed (yfinance)"}>
+          {src==="tradier"?"● TRADIER":src==="polygon"?"● POLYGON":
+           !chainData&&serverStatus.tradier_active?"● TRADIER":
+           chainData?"○ YFINANCE":"—"}
         </span>
         <span className="muted">·</span>
-        <span style={{color:"#2a2a2a"}}>{chainData?.fetched_at||""}</span>
+        <span style={{color:"#555"}}>{chainData?.fetched_at||""}</span>
       </div>
     </div>
   );
@@ -2412,8 +2491,10 @@ export default function App() {
   const toggleSide = () => { const n=!sideOpen; setSideOpen(n); persist("optflow_sidebar_open",n); };
 
   // Split pane
-  const [splitMode,setSplitMode] = useState(false);
-  const [splitPos,setSplitPos]   = useState(50);
+  const [splitMode,setSplitMode]   = useState(false);
+  const [splitPos,setSplitPos]     = useState(50);
+  const [pinnedRight,setPinnedRight] = useState(false);
+  const [leftActiveTabId,setLeftActiveTabId] = useState(1);
   const splitDragging = useRef(false);
 
   // Server status (polled every 5s)
@@ -2442,10 +2523,8 @@ export default function App() {
   // Shared state
   const [nextId,setNextId]   = useState(3);
   const [liveSpots,setLiveSpots] = useState({});
-  // Left pane — portfolio/chain
+  // Shared tabs — both panes reference the same tab list
   const [tabsA,setTabsA] = useState([{id:1,ticker:"SPY",chainData:null,expiry:null,expiries:[],loading:false,error:null,activeType:"call",livePrice:null}]);
-  // Right pane — analysis
-  const [tabsB,setTabsB] = useState([{id:2,ticker:"SPY",chainData:null,expiry:null,expiries:[],loading:false,error:null,activeType:"call",livePrice:null}]);
   const [portData,setPortData]       = useState(null);
   const [portLoading,setPortLoading] = useState(false);
   const [watchlist,setWatchlist]     = useState(()=>recall("optflow_watchlist",["SPY","QQQ","NVDA"]));
@@ -2453,10 +2532,7 @@ export default function App() {
   const [recentTickers,setRecentTickers] = useState(()=>recall("optflow_recent",["SPY","QQQ"]));
   const [view,setView]               = useState("portfolio");
   // Right pane state (independent)
-  const [viewB,setViewB]             = useState("analysis");
   const [labLegsB,setLabLegsB]       = useState([]);
-  const [pinnedRight,setPinnedRight]  = useState(false);
-  const [followTicker,setFollowTicker] = useState(null);
 
   const fetchPortfolio = useCallback(async()=>{
     setPortLoading(true);
@@ -2474,19 +2550,11 @@ export default function App() {
     } catch {}
   },[]);
 
-  // Open right pane with a ticker (from portfolio row click or LAB button)
+  // Open right analysis pane (seeds lab legs if provided)
   const openInRight = useCallback((ticker, labLegs=[]) => {
-    // Ensure ticker tab exists in tabsB
-    setTabsB(prev => {
-      if (prev.find(t=>t.ticker===ticker)) return prev;
-      const id = nextId; setNextId(n=>n+1);
-      return [...prev, {id,ticker,chainData:null,expiry:null,expiries:[],
-                        loading:false,error:null,activeType:"call",livePrice:null}];
-    });
-    setLabLegsB(labLegs);
-    setViewB(labLegs.length ? "analysis" : "chain");
+    if(labLegs.length) setLabLegsB(labLegs);
     setSplitMode(true);
-  }, [nextId]);
+  }, []);
 
   // Split divider drag
   const onSplitDrag = e=>{
@@ -2522,7 +2590,7 @@ export default function App() {
           <span style={{color:"var(--green)",fontSize:15}}>◈</span>
           <span style={{fontSize:11,fontWeight:700,letterSpacing:"0.15em",color:"#fff"}}>OPTFLOW</span>
           <div style={{marginLeft:"auto",display:"flex",gap:6}}>
-            <button onClick={()=>{ if(!splitMode) openInRight(tabsA[0]?.ticker||"SPY"); else setSplitMode(false); }}
+            <button onClick={()=>{ if(!splitMode){setSplitMode(true);} else {setSplitMode(false);setPinnedRight(false);} }}
               style={{background:splitMode?"rgba(0,229,160,0.08)":"none",
                 border:`1px solid ${splitMode?"rgba(0,229,160,0.3)":"#282828"}`,
                 color:splitMode?"var(--green)":"#444",fontFamily:"var(--mono)",
@@ -2542,6 +2610,7 @@ export default function App() {
                 setTabsA(p=>[...p,{id,ticker:t,chainData:null,expiry:null,expiries:[],
                   loading:false,error:null,activeType:"call",livePrice:null}]);
               }
+              setView("chain");
             }}
             view={view} setView={setView}
             watchlist={watchlist} setWatchlist={setWatchlist}
@@ -2561,10 +2630,10 @@ export default function App() {
                 liveSpots={liveSpots}
                 portData={portData} fetchPortfolio={fetchPortfolio} portLoading={portLoading}
                 recentTickers={recentTickers} setRecentTickers={setRecentTickers}
-                compact={splitMode} role="left"
                 view={view} setView={setView}
+                serverStatus={serverStatus}
                 onOpenRight={openInRight}
-                onActiveTicker={t=>{ if(!pinnedRight) setFollowTicker(t); }}/>
+                onActiveTicker={(tabId,ticker)=>{ setLeftActiveTabId(tabId); }}/>
             </div>
 
             {splitMode&&(
@@ -2578,14 +2647,12 @@ export default function App() {
                 {/* Right pane — analysis (strategy + lab) */}
                 <div style={{flex:"1 1 0",display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
                   <AnalysisPane
-                    tabs={tabsB} setTabs={setTabsB}
-                    nextId={nextId} setNextId={setNextId}
+                    tabs={tabsA} setTabs={setTabsA}
+                    activeTabId={pinnedRight?null:leftActiveTabId}
                     liveSpots={liveSpots}
                     labLegs={labLegsB} setLabLegs={setLabLegsB}
-                    view={viewB} setView={setViewB}
                     portData={portData}
                     serverStatus={serverStatus}
-                    followTicker={pinnedRight?null:followTicker}
                     pinned={pinnedRight} onTogglePin={()=>setPinnedRight(p=>!p)}
                     onClose={()=>{setSplitMode(false);setPinnedRight(false);}}/>
                 </div>
@@ -2604,7 +2671,8 @@ const CSS = `
   :root{
     --bg:#080808;--bg1:#0d0d0d;--bg2:#131313;--bg3:#1a1a1a;
     --border:#1e1e1e;--border2:#282828;
-    --text:#d0d0d0;--muted:#555;
+    --text:#d0d0d0;--muted:#888;
+    --t1:#e0e0e0;--t2:#bbb;--t3:#888;--t4:#666;
     --green:#00e5a0;--red:#ff4d6d;--blue:#4da8ff;--amber:#f5a623;
     --mono:'IBM Plex Mono',monospace;
   }
@@ -2612,7 +2680,7 @@ const CSS = `
   .app{display:flex;flex-direction:column;height:100vh;overflow:hidden}
   /* Sidebar utilities */
   .side-section-btn{display:flex;align-items:center;justify-content:space-between;width:100%;
-    background:none;border:none;color:#444;font-family:var(--mono);font-size:9px;
+    background:none;border:none;color:var(--t3);font-family:var(--mono);font-size:9px;
     letter-spacing:0.15em;padding:7px 14px;cursor:pointer;transition:color 0.15s}
   .side-section-btn:hover{color:#777}
   .side-nav-btn{display:flex;align-items:center;width:100%;background:none;border:none;border-left:2px solid transparent;

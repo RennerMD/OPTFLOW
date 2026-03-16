@@ -61,8 +61,14 @@ async def fetch_spots_async(tickers: list) -> dict:
             quotes = data.get("quotes", {}).get("quote", [])
             if isinstance(quotes, dict):
                 quotes = [quotes]
-            out = {q["symbol"]: float(q.get("last") or q.get("prevclose") or 0)
-                   for q in quotes}
+            def _best_price(q):
+                last  = float(q.get("last")      or 0)
+                bid   = float(q.get("bid")        or 0)
+                ask   = float(q.get("ask")        or 0)
+                close = float(q.get("prevclose")  or 0)
+                mid   = round((bid+ask)/2,4) if bid>0 and ask>0 else 0
+                return last or mid or close or 0
+            out = {q["symbol"]: _best_price(q) for q in quotes}
             if all(out.get(t.upper(), 0) > 0 for t in tickers):
                 return {t: out[t.upper()] for t in tickers}
     except Exception:

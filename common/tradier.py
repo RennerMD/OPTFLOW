@@ -57,7 +57,14 @@ def get_quote(ticker: str) -> dict:
 
 def get_spot(ticker: str) -> float:
     q = get_quote(ticker)
-    return float(q.get("last") or q.get("prevclose") or 0)
+    # Use last trade price; fall back to bid/ask mid for after-hours,
+    # then previous close as final fallback
+    last  = float(q.get("last")      or 0)
+    bid   = float(q.get("bid")       or 0)
+    ask   = float(q.get("ask")       or 0)
+    close = float(q.get("prevclose") or 0)
+    mid   = round((bid + ask) / 2, 4) if bid > 0 and ask > 0 else 0
+    return last or mid or close or 0
 
 def get_expirations(ticker: str) -> list:
     data = _get("/v1/markets/options/expirations",
