@@ -78,8 +78,23 @@ function SideSection({label,open,onToggle,children,badge,indent=false,headerActi
 }
 
 // ── ChainTable ─────────────────────────────────────────────────────────────────
-function ChainTable({chain,spot,activeType,onRowClick}) {
-  const rows = chain.filter(r=>r.type===activeType);
+function ChainTable({chain,spot,activeType,onRowClick,limit=50}) {
+  const allRows = chain.filter(r=>r.type===activeType);
+  const rows    = limit ? allRows.slice(
+    // Centre the slice on ATM
+    Math.max(0, (() => {
+      if(!spot) return 0;
+      const atmIdx = allRows.reduce((best,r,i)=>
+        Math.abs(r.strike-spot)<Math.abs(allRows[best].strike-spot)?i:best, 0);
+      return Math.max(0, atmIdx - Math.floor(limit/2));
+    })()),
+    (() => {
+      if(!spot) return limit;
+      const atmIdx = allRows.reduce((best,r,i)=>
+        Math.abs(r.strike-spot)<Math.abs(allRows[best].strike-spot)?i:best, 0);
+      return Math.min(allRows.length, Math.max(limit, atmIdx + Math.ceil(limit/2)));
+    })()
+  ) : allRows;
   const cols = ["strike","bid","ask","mid","volume","OI","iv","delta","gamma","theta","vega"];
   const minDiff = spot ? Math.min(...rows.map(r=>Math.abs(r.strike-spot))) : null;
   return (
@@ -561,6 +576,7 @@ function StrategyPanel({chainData, onLabOpen}) {
 
       {/* ── Collapsible strategy grid ── */}
       {rankingOpen&&(
+        <>
         <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:6}}>
           {sorted.map((s,rank)=>{
             const rgb=s.color==="#00e5a0"?"0,229,160":s.color==="#4da8ff"?"77,168,255":
@@ -614,6 +630,17 @@ function StrategyPanel({chainData, onLabOpen}) {
             );
           })}
         </div>
+
+        {/* ── Active strategy type + description ── */}
+        <div style={{display:"flex",alignItems:"center",gap:8,
+          padding:"6px 0 2px",borderTop:"1px solid var(--border)",marginTop:4}}>
+          <span style={{fontSize:11,fontWeight:700,color:active.color}}>{active.name}</span>
+          <span style={{fontSize:8,padding:"1px 6px",
+            background:`rgba(${active.color==="#00e5a0"?"0,229,160":active.color==="#4da8ff"?"77,168,255":active.color==="#9b6dff"?"155,109,255":"245,166,35"},0.12)`,
+            color:active.color}}>{active.category}</span>
+          <span style={{fontSize:9,color:"#888",marginLeft:4}}>{active.desc}</span>
+        </div>
+        </>
       )}
 
       {/* ── Active strategy detail ── */}
@@ -678,8 +705,8 @@ function StrategyPanel({chainData, onLabOpen}) {
         </div>
       </div>
 
-      {/* ── Recommended strikes ── */}
-      {recs.length>0&&(
+      {/* ── Recommended strikes — also inside collapsible ── */}
+      {rankingOpen&&recs.length>0&&(
         <div>
           <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
             <span className="section-label">RECOMMENDED STRIKES — {active.name}</span>
@@ -846,6 +873,15 @@ function calcPayoff(legs, spotRange, dteRatio, r=0.04){
 }
 
 const LEG_COLORS = ["#00e5a0","#4da8ff","#f5a623","#ff4d6d","#9b6dff","#00bcd4"];
+
+// ── LegRow — top-level so React never remounts on lab state change ─────────────
+
+// ── PayoffChart — React.memo prevents remount on unrelated state changes ────────
+
+// ── LabPanel ───────────────────────────────────────────────────────────────────
+
+// ── IVScenarioTable ────────────────────────────────────────────────────────────
+
 
 // ── LegRow — top-level so React never remounts on lab state change ─────────────
 function LegRow({leg, idx, editable, onRemove, onUpdate, pnl=0,
@@ -1031,112 +1067,78 @@ const PayoffChart = React.memo(function PayoffChart({data,legs,chartMode,lo,hi,y
 const PRICE_ROWS = 9;
 
 function IVScenarioTable({legs, spot0, spot, r, analysisDate, mode}) {
-  // IV columns: current IV ± user-defined step
-  // Derive base IV from first leg (representative)
   const baseIV = legs.length ? Math.round((legs[0].iv||0.25)*100) : 25;
-  const [ivStep, setIvStep]       = useState(5);       // increment %
-  const [editingStep, setEditing] = useState(false);
-  const [stepDraft, setStepDraft] = useState("5");
+  const [ivStep,     setIvStep]    = useState(1);
+  const [editIV,     setEditIV]    = useState(false);
+  const [ivDraft,    setIvDraft]   = useState("1");
+  const [priceStep,  setPriceStep] = useState(1);
+  const [editPrice,  setEditPrice] = useState(false);
+  const [priceDraft, setPriceDraft]= useState("1");
 
-  // 9 columns centred on baseIV: baseIV + [-4..+4]*step
-  const ivCols = [-4,-3,-2,-1,0,1,2,3,4].map(n=>baseIV + n*ivStep);
-
-  // Price rows: ±20% around spot0
-  const pricePct = Array.from({length:PRICE_ROWS*2+1},(_,i)=>
-    Math.round((i-PRICE_ROWS)*(20/PRICE_ROWS)*10)/10);
-  const prices = pricePct.map(p=>spot0*(1+p/100));
+  const ROWS    = 7;  // 2*7+1 = 15 rows
+  const ivCols   = [-4,-3,-2,-1,0,1,2,3,4].map(n=>baseIV+n*ivStep);
+  const pricePct = Array.from({length:ROWS*2+1},(_,i)=>Math.round((i-ROWS)*priceStep*10)/10);
+  const prices   = pricePct.map(p=>spot0*(1+p/100));
 
   if(!legs.length) return null;
 
-  const cellVal = (S, ivAbsPct) => {
+  const cellVal=(S,ivAbsPct)=>{
     let total=0;
     legs.forEach(leg=>{
       if(!leg.strike) return;
-      const holdSign = leg.dir==="long"?1:-1;
-      const sign     = leg.closing?-holdSign:holdSign;
-      const iv       = Math.max(0.01, ivAbsPct/100);
-      let T = 0.001;
-      if(leg.expiry){
-        const days = Math.max(0,(new Date(leg.expiry+"T00:00:00")-new Date(analysisDate+"T00:00:00"))/(864e5));
-        T = Math.max(0.001, days/365);
-      } else {
-        T = Math.max(0.001,(leg.dte||30)/365);
-      }
-      const price = bsPrice(S, leg.strike, T, r, iv, leg.type);
-      if(mode==="pnl"){
-        total += sign*(price - leg.entry)*100*leg.qty;
-      } else {
-        total += price*100*leg.qty*(leg.dir==="long"?1:-1);
-      }
+      const holdSign=leg.dir==="long"?1:-1;
+      const sign=leg.closing?-holdSign:holdSign;
+      const iv=Math.max(0.01,ivAbsPct/100);
+      let T=0.001;
+      if(leg.expiry){ const days=Math.max(0,(new Date(leg.expiry+"T00:00:00")-new Date(analysisDate+"T00:00:00"))/(864e5)); T=Math.max(0.001,days/365); }
+      else { T=Math.max(0.001,(leg.dte||30)/365); }
+      const price=bsPrice(S,leg.strike,T,r,iv,leg.type);
+      total+=mode==="pnl"?sign*(price-leg.entry)*100*leg.qty:price*100*leg.qty*(leg.dir==="long"?1:-1);
     });
     return total;
   };
 
-  const allVals = prices.flatMap(S=>ivCols.map(iv=>cellVal(S,iv)));
-  const maxAbs  = Math.max(1,...allVals.map(Math.abs));
+  const allVals=prices.flatMap(S=>ivCols.map(iv=>cellVal(S,iv)));
+  const maxAbs=Math.max(1,...allVals.map(Math.abs));
+  const cellBg=v=>{const k=Math.min(1,Math.abs(v)/maxAbs);return mode==="pnl"?v>0?`rgba(0,229,160,${0.07+k*0.33})`:`rgba(255,77,109,${0.07+k*0.33})`:`rgba(77,168,255,${0.05+k*0.28})`;};
+  const cellTxt=v=>{const a=Math.abs(v);const s=a>=10000?`$${(a/1000).toFixed(0)}k`:a>=1000?`$${(a/1000).toFixed(1)}k`:`$${a.toFixed(0)}`;return (mode==="pnl"?(v>=0?"+":"-"):"")+s;};
 
-  const cellBg = v => {
-    const intensity = Math.min(1, Math.abs(v)/maxAbs);
-    if(mode==="pnl")
-      return v>0 ? `rgba(0,229,160,${0.07+intensity*0.33})` : `rgba(255,77,109,${0.07+intensity*0.33})`;
-    return `rgba(77,168,255,${0.05+intensity*0.28})`;
-  };
-
-  const cellTxt = v => {
-    const abs=Math.abs(v);
-    const s = abs>=10000?`$${(abs/1000).toFixed(0)}k` : abs>=1000?`$${(abs/1000).toFixed(1)}k` : `$${abs.toFixed(0)}`;
-    return (mode==="pnl"?(v>=0?"+":"-"):"")+s;
-  };
-
-  const commitStep = () => {
-    const n = parseInt(stepDraft);
-    if(n>=1&&n<=50) setIvStep(n);
-    setEditing(false);
-  };
+  const Editable=({value,draft,setDraft,editing,setEditing,onCommit,suffix})=>editing?(
+    <input autoFocus value={draft} onChange={e=>setDraft(e.target.value)}
+      onBlur={onCommit} onKeyDown={e=>{if(e.key==="Enter")onCommit();if(e.key==="Escape")setEditing(false);}}
+      style={{width:36,background:"var(--bg2)",border:"1px solid var(--green)",color:"#fff",
+        fontFamily:"var(--mono)",fontSize:9,padding:"1px 4px",textAlign:"center",outline:"none"}}/>
+  ):(
+    <span onClick={()=>{setDraft(String(value));setEditing(true);}} title="Click to edit"
+      style={{cursor:"pointer",color:"#00e5a0",borderBottom:"1px dashed #00e5a0"}}
+      onMouseEnter={e=>e.target.style.color="#fff"} onMouseLeave={e=>e.target.style.color="#00e5a0"}>
+      {value}{suffix}
+    </span>
+  );
 
   return (
     <div>
-      {/* IV step control */}
-      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,fontSize:9,color:"#888"}}>
-        <span>Base IV: <b style={{color:"#fff"}}>{baseIV}%</b></span>
-        <span style={{color:"#666"}}>·</span>
-        <span>Step:</span>
-        {editingStep ? (
-          <input autoFocus value={stepDraft}
-            onChange={e=>setStepDraft(e.target.value)}
-            onBlur={commitStep}
-            onKeyDown={e=>{if(e.key==="Enter")commitStep();if(e.key==="Escape")setEditing(false);}}
-            style={{width:36,background:"var(--bg2)",border:"1px solid var(--green)",
-              color:"#fff",fontFamily:"var(--mono)",fontSize:9,padding:"1px 4px",
-              textAlign:"center",outline:"none"}}/>
-        ) : (
-          <span onClick={()=>{setStepDraft(String(ivStep));setEditing(true);}}
-            title="Click to change IV step"
-            style={{cursor:"pointer",color:"#00e5a0",borderBottom:"1px dashed #00e5a0"}}
-            onMouseEnter={e=>e.target.style.color="#fff"}
-            onMouseLeave={e=>e.target.style.color="#00e5a0"}>
-            ±{ivStep}%
-          </span>
-        )}
-        <span style={{color:"#666",marginLeft:4}}>— cols span {baseIV-4*ivStep}% → {baseIV+4*ivStep}%</span>
+      <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:5,fontSize:9,color:"#888",flexWrap:"wrap"}}>
+        <span>Base IV <b style={{color:"#e0e0e0"}}>{baseIV}%</b></span>
+        <span style={{color:"#555"}}>·</span>
+        <span>IV step: <Editable value={ivStep} draft={ivDraft} setDraft={setIvDraft} editing={editIV} setEditing={setEditIV} suffix="%" onCommit={()=>{const n=parseFloat(ivDraft);if(n>=0.5&&n<=20)setIvStep(n);setEditIV(false);}}/></span>
+        <span style={{color:"#555"}}>·</span>
+        <span>Price step: <Editable value={priceStep} draft={priceDraft} setDraft={setPriceDraft} editing={editPrice} setEditing={setEditPrice} suffix="%" onCommit={()=>{const n=parseFloat(priceDraft);if(n>=0.5&&n<=20)setPriceStep(n);setEditPrice(false);}}/></span>
+        <span style={{color:"#555",marginLeft:"auto"}}>IV {ivCols[0]}%–{ivCols[ivCols.length-1]}% · ±{pricePct[pricePct.length-1]}%</span>
       </div>
-
       <div style={{overflowX:"auto"}}>
         <table style={{borderCollapse:"collapse",fontSize:9,fontFamily:"var(--mono)",width:"100%"}}>
           <thead>
             <tr>
-              <th style={{padding:"2px 6px",color:"#888",textAlign:"left",
-                borderBottom:"1px solid var(--border)",whiteSpace:"nowrap",fontSize:8}}>
-                {mode==="pnl"?"P&L":"VALUE"} ↕price / IV →
+              <th style={{padding:"2px 6px",color:"#888",textAlign:"left",borderBottom:"1px solid var(--border)",whiteSpace:"nowrap",fontSize:8}}>
+                {mode==="pnl"?"P&L":"VALUE"} ↕ / IV →
               </th>
               {ivCols.map((iv,ci)=>(
-                <th key={ci} style={{padding:"2px 5px",textAlign:"center",
-                  borderBottom:"1px solid var(--border)",whiteSpace:"nowrap",
-                  color:iv===baseIV?"#e0e0e0":"#777",
-                  background:iv===baseIV?"rgba(255,255,255,0.04)":"none",
-                  fontSize:iv===baseIV?9:8}}>
+                <th key={ci} style={{padding:"2px 5px",textAlign:"center",borderBottom:"1px solid var(--border)",
+                  whiteSpace:"nowrap",color:iv===baseIV?"#e0e0e0":"#777",
+                  background:iv===baseIV?"rgba(255,255,255,0.04)":"none",fontSize:8}}>
                   {iv}%
-                  {iv===baseIV&&<span style={{fontSize:7,color:"#555",display:"block"}}>current</span>}
+                  {iv===baseIV&&<span style={{fontSize:7,color:"#555",display:"block"}}>now</span>}
                 </th>
               ))}
             </tr>
@@ -1144,29 +1146,20 @@ function IVScenarioTable({legs, spot0, spot, r, analysisDate, mode}) {
           <tbody>
             {prices.map((S,ri)=>{
               const pct=pricePct[ri];
-              const isSpot=Math.abs(pct)<(20/PRICE_ROWS/2);
+              const isSpot=Math.abs(pct)<priceStep/2;
               return (
-                <tr key={ri} style={{
-                  outline:isSpot?"1px solid rgba(255,255,255,0.08)":"none",
-                  background:isSpot?"rgba(255,255,255,0.02)":"none"}}>
+                <tr key={ri} style={{outline:isSpot?"1px solid rgba(255,255,255,0.08)":"none",background:isSpot?"rgba(255,255,255,0.02)":"none"}}>
                   <td style={{padding:"2px 6px",color:isSpot?"#e0e0e0":pct>0?"#00e5a0":"#ff4d6d",
-                    borderRight:"1px solid var(--border)",whiteSpace:"nowrap",
-                    fontWeight:isSpot?700:400,fontSize:8}}>
+                    borderRight:"1px solid var(--border)",fontWeight:isSpot?700:400,fontSize:8,whiteSpace:"nowrap"}}>
                     ${S.toFixed(0)}{isSpot?" ◀":pct>=0?` +${pct.toFixed(1)}%`:` ${pct.toFixed(1)}%`}
                   </td>
-                  {ivCols.map((iv,ci)=>{
-                    const v=cellVal(S,iv);
-                    return (
-                      <td key={ci} style={{padding:"2px 4px",textAlign:"right",
-                        background:cellBg(v),
-                        color:mode==="pnl"?(v>=0?"#00e5a0":"#ff4d6d"):"#4da8ff",
-                        fontWeight:isSpot?700:400,
-                        border:"1px solid rgba(255,255,255,0.02)",
-                        whiteSpace:"nowrap",fontSize:8}}>
-                        {cellTxt(v)}
-                      </td>
-                    );
-                  })}
+                  {ivCols.map((iv,ci)=>{const v=cellVal(S,iv);return (
+                    <td key={ci} style={{padding:"2px 4px",textAlign:"right",background:cellBg(v),
+                      color:mode==="pnl"?(v>=0?"#00e5a0":"#ff4d6d"):"#4da8ff",
+                      fontWeight:isSpot?700:400,border:"1px solid rgba(255,255,255,0.02)",whiteSpace:"nowrap",fontSize:8}}>
+                      {cellTxt(v)}
+                    </td>
+                  );})}
                 </tr>
               );
             })}
@@ -1176,7 +1169,6 @@ function IVScenarioTable({legs, spot0, spot, r, analysisDate, mode}) {
     </div>
   );
 }
-
 
 // ── LegRow — top-level so React never remounts on lab state change ─────────────
 
@@ -1623,9 +1615,9 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
           {legs.length>0&&(
             <>
               {scenarioPanel}
-              {chartPanel(legs.some(l=>l.real)?"COMBINED PAYOFF":"PAYOFF DIAGRAM")}
-              {greeksPanel}
               {ivTable}
+              {greeksPanel}
+              {chartPanel(legs.some(l=>l.real)?"COMBINED PAYOFF":"PAYOFF DIAGRAM")}
             </>
           )}
         </div>
@@ -2056,7 +2048,7 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
 
 function Pane({tabs,setTabs,nextId,setNextId,liveSpots,setLiveSpots,portData,
                fetchPortfolio,portLoading,recentTickers,setRecentTickers,
-               view,setView,onOpenRight,onActiveTicker,serverStatus={}}) {
+               view,setView,onOpenRight,onActiveTicker,serverStatus={},settings={}}) {
 
   const [activeTabId,setActiveTabId] = useState(tabs[0]?.id||1);
   const [inputTicker,setInput]       = useState("");
@@ -2330,6 +2322,7 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,setLiveSpots,portData,
                   chain={activeTab.chainData.chain}
                   spot={activeTab.chainData.spot}
                   activeType={activeTab.activeType}
+                  limit={settings?.chainRows||20}
                   onRowClick={row=>{
                     const leg={id:1,type:row.type,dir:"long",strike:row.strike,
                       iv:row.iv||0.25,qty:1,dte:activeTab.chainData.dte||30,
@@ -2677,6 +2670,7 @@ export default function App() {
                 recentTickers={recentTickers} setRecentTickers={setRecentTickers}
                 view={view} setView={setView}
                 serverStatus={serverStatus}
+                settings={settings}
                 onOpenRight={openInRight}
                 setLiveSpots={setLiveSpots}
                 onActiveTicker={(tabId,ticker)=>{ setLeftActiveTabId(tabId); }}/>
