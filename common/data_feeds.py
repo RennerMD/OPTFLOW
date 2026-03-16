@@ -11,6 +11,18 @@ from dotenv import load_dotenv
 from common.paths import ENV_FILE
 from common.options_chain import fetch_chain as _yf_chain, fetch_iv_history, generate_signals, _int
 
+
+def _is_market_hours() -> bool:
+    """True if NYSE regular session is currently open."""
+    from datetime import datetime, time
+    import zoneinfo
+    et   = zoneinfo.ZoneInfo("America/New_York")
+    now  = datetime.now(et)
+    if now.weekday() >= 5:          # Sat/Sun
+        return False
+    t = now.time()
+    return time(9, 30) <= t <= time(16, 0)
+
 POLYGON_BASE = "https://api.polygon.io"
 
 
@@ -100,7 +112,7 @@ def _spot_yfinance_enriched(ticker: str) -> dict:
         "close":     close,
         "ah_change": ah_chg,
         "ah_pct":    ah_pct,
-        "is_ah":     is_extended or (close > 0 and abs(price - close) > 0.01),
+        "is_ah":     (not _is_market_hours()) and (is_extended or (close > 0 and abs(price - close) > 0.01)),
     }
 
 

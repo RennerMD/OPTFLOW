@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import React from "react";
-import { LineChart, ComposedChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
+import { LineChart, ComposedChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Brush } from "recharts";
 
 const API = "http://127.0.0.1:8000/api";
 const WS  = "ws://127.0.0.1:8000/ws";
@@ -132,29 +132,43 @@ function ChainTable({chain,spot,activeType,onRowClick,limit=50}) {
 
 // ── IVChart ────────────────────────────────────────────────────────────────────
 function IVChart({ticker, atmIV=null}) {
-  const [data,   setData] = useState([]);
-  const [refIV,  setRefIV]= useState(null);
-  const [loading,setLoad] = useState(false);
-  const [show, setShow]   = useState({hv20:true,hv30:false,ivrank:false,price:false,premium:true});
+  const [allData, setAllData] = useState([]);
+  const [refIV,   setRefIV]  = useState(null);
+  const [loading, setLoad]   = useState(false);
+  const [show,    setShow]   = useState({hv20:true,hv30:false,ivrank:false,price:false,premium:true});
+  // Date range — default to last 90 days, but user can change
+  const todayStr   = new Date().toISOString().slice(0,10);
+  const default90  = new Date(Date.now()-90*864e5).toISOString().slice(0,10);
+  const [dateFrom, setDateFrom] = useState(default90);
+  const [dateTo,   setDateTo]   = useState(todayStr);
+  // Quick-select presets
+  const PRESETS = [["1M",30],["3M",90],["6M",180],["1Y",365]];
+  const applyPreset = days => {
+    setDateTo(todayStr);
+    setDateFrom(new Date(Date.now()-days*864e5).toISOString().slice(0,10));
+  };
   const toggle = k => setShow(s=>({...s,[k]:!s[k]}));
 
   useEffect(()=>{
     if(!ticker) return;
     setLoad(true);
-    fetch(`${API}/iv-history/${ticker}`)
+    // Fetch full history (365d) once; filter client-side by date range
+    fetch(`${API}/iv-history/${ticker}?days=365`)
       .then(r=>r.json())
-      .then(d=>{ setData(d.history||[]); setRefIV(d.atm_iv||null); setLoad(false); })
+      .then(d=>{ setAllData(d.history||[]); setRefIV(d.atm_iv||null); setLoad(false); })
       .catch(()=>setLoad(false));
   },[ticker]);
 
   const currentIV = atmIV || refIV;
+
+  // Filter by date range client-side
+  const data = allData.filter(d=>d.date>=dateFrom && d.date<=dateTo);
+
   if(loading) return <div style={{fontSize:9,color:"#444",padding:"6px 0"}}>Loading vol history…</div>;
-  if(!data.length) return null;
+  if(!allData.length) return null;
 
   const chartData = data.map(d=>({
     ...d,
-    // hv20/hv30/ivrank/close/price come from backend
-    // price mirrors close for secondary-axis display
     price:   d.close||null,
     premium: (currentIV!=null&&d.hv20!=null) ? currentIV - d.hv20 : null,
     iv:      currentIV||null,
@@ -178,37 +192,32 @@ function IVChart({ticker, atmIV=null}) {
     {k:"price",  label:"Price",    color:"#666",    dash:"2 3", axis:"right"},
     {k:"premium",label:"Vol Prem", color:"#f5a623", dash:"4 2", axis:"left"},
   ];
-
   const rgbMap = {"#4da8ff":"77,168,255","#9b6dff":"155,109,255",
                   "#00e5a0":"0,229,160","#f5a623":"245,166,35","#666":"102,102,102"};
 
   return (
     <div style={{marginTop:10}}>
-      {/* Header row */}
-      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5,flexWrap:"wrap"}}>
+      {/* Header: signal + series toggles */}
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
         <span style={{fontSize:9,color:"#777",letterSpacing:"0.08em"}}>VOL CHART</span>
         {currentIV&&(
-          <span style={{fontSize:9,color:"#f5a623"}}>
-            ATM IV {fmtPct(currentIV)}
-          </span>
+          <span style={{fontSize:9,color:"#f5a623"}}>ATM IV {fmtPct(currentIV)}</span>
         )}
         {premium!=null&&(
-          <span style={{fontSize:9,fontWeight:600,
-            color:isRich?"#ff4d6d":"#00e5a0"}}>
+          <span style={{fontSize:9,fontWeight:600,color:isRich?"#ff4d6d":"#00e5a0"}}>
             {isRich?`▲ IV rich +${fmtPct(premium)}`:`▼ IV cheap −${fmtPct(Math.abs(premium))}`}
             <span style={{fontSize:8,fontWeight:400,color:"#555",marginLeft:4}}>
               (ATM IV − HV 20d)
             </span>
           </span>
         )}
-        {/* Toggle buttons */}
         <div style={{marginLeft:"auto",display:"flex",gap:3,flexWrap:"wrap"}}>
           {SERIES.map(s=>(
             <button key={s.k} onClick={()=>toggle(s.k)}
               style={{
-                background: show[s.k]?`rgba(${rgbMap[s.color]||"100,100,100"},0.15)`:"none",
+                background:show[s.k]?`rgba(${rgbMap[s.color]||"100,100,100"},0.15)`:"none",
                 border:`1px solid ${show[s.k]?s.color:"#282828"}`,
-                color: show[s.k]?s.color:"#444",
+                color:show[s.k]?s.color:"#444",
                 fontFamily:"var(--mono)",fontSize:8,padding:"1px 7px",
                 cursor:"pointer",transition:"all 0.15s"}}>
               {s.label}
@@ -217,14 +226,50 @@ function IVChart({ticker, atmIV=null}) {
         </div>
       </div>
 
-      {/* Chart */}
-      <ResponsiveContainer width="100%" height={100}>
-        <ComposedChart data={chartData} margin={{top:2,right:4,bottom:2,left:4}}>
+      {/* Duration controls */}
+      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4,flexWrap:"wrap"}}>
+        {/* Preset buttons */}
+        {PRESETS.map(([label,days])=>{
+          const fromDate=new Date(Date.now()-days*864e5).toISOString().slice(0,10);
+          const active=dateFrom===fromDate&&dateTo===todayStr;
+          return (
+            <button key={label} onClick={()=>applyPreset(days)}
+              style={{background:active?"rgba(0,229,160,0.08)":"none",
+                border:`1px solid ${active?"rgba(0,229,160,0.4)":"#282828"}`,
+                color:active?"#00e5a0":"#555",fontFamily:"var(--mono)",
+                fontSize:8,padding:"1px 8px",cursor:"pointer",transition:"all 0.15s"}}>
+              {label}
+            </button>
+          );
+        })}
+        <span style={{color:"#444",fontSize:8,marginLeft:2}}>from</span>
+        <input type="date" value={dateFrom}
+          min={allData[0]?.date||"2020-01-01"} max={dateTo}
+          onChange={e=>setDateFrom(e.target.value)}
+          style={{background:"var(--bg2)",border:"1px solid var(--border2)",
+            color:"#ccc",fontFamily:"var(--mono)",fontSize:8,padding:"1px 6px",
+            outline:"none",colorScheme:"dark"}}/>
+        <span style={{color:"#444",fontSize:8}}>to</span>
+        <input type="date" value={dateTo}
+          min={dateFrom} max={todayStr}
+          onChange={e=>setDateTo(e.target.value)}
+          style={{background:"var(--bg2)",border:"1px solid var(--border2)",
+            color:"#ccc",fontFamily:"var(--mono)",fontSize:8,padding:"1px 6px",
+            outline:"none",colorScheme:"dark"}}/>
+        <span style={{fontSize:8,color:"#444",marginLeft:2}}>
+          {chartData.length}d shown
+        </span>
+      </div>
+
+      {/* Chart with Brush for drag-select zoom */}
+      <ResponsiveContainer width="100%" height={110}>
+        <ComposedChart data={chartData} margin={{top:2,right:4,bottom:0,left:4}}>
           <XAxis dataKey="date" hide/>
           <YAxis yAxisId="left"  hide domain={[volMin,volMax]}/>
           <YAxis yAxisId="right" hide orientation="right" domain={["auto","auto"]}/>
           <Tooltip
-            contentStyle={{background:"#0d0d0d",border:"1px solid #222",fontSize:9,padding:"4px 8px"}}
+            contentStyle={{background:"#0d0d0d",border:"1px solid #222",
+              fontSize:9,padding:"4px 8px"}}
             formatter={(v,name)=>{
               if(name==="iv") return [`${(v*100).toFixed(1)}%`,"ATM IV (ref)"];
               const s=SERIES.find(s=>s.k===name);
@@ -234,35 +279,141 @@ function IVChart({ticker, atmIV=null}) {
               return [`${(v*100).toFixed(1)}%`,s.label];
             }}
             labelFormatter={l=>l}/>
-          {/* ATM IV flat reference — always shown */}
+          <Brush dataKey="date" height={16} stroke="#282828"
+            fill="#0a0a0a" travellerWidth={6}
+            style={{fontSize:8}}
+            onChange={({startIndex,endIndex})=>{
+              if(chartData[startIndex]&&chartData[endIndex]){
+                setDateFrom(chartData[startIndex].date);
+                setDateTo(chartData[endIndex].date);
+              }
+            }}/>
           {currentIV&&(
             <Line yAxisId="left" type="monotone" dataKey="iv" name="iv"
               stroke="#f5a623" dot={false} strokeWidth={1} strokeDasharray="4 2"/>
           )}
-          {/* Toggled series */}
           {SERIES.filter(s=>show[s.k]).map(s=>(
-            <Line key={s.k}
-              yAxisId={s.axis}
-              type="monotone"
-              dataKey={s.k}
-              name={s.k}
-              stroke={s.color}
-              dot={false}
+            <Line key={s.k} yAxisId={s.axis} type="monotone" dataKey={s.k} name={s.k}
+              stroke={s.color} dot={false}
               strokeWidth={s.k==="hv20"?1.5:1.2}
               strokeDasharray={s.dash||"0"}/>
           ))}
         </ComposedChart>
       </ResponsiveContainer>
 
-      {/* Date range */}
-      <div style={{display:"flex",justifyContent:"space-between",fontSize:8,color:"#444",marginTop:1}}>
-        <span>{chartData[0]?.date}</span>
-        <span>{chartData[chartData.length-1]?.date}</span>
+      {/* Date range display */}
+      <div style={{display:"flex",justifyContent:"space-between",
+        fontSize:8,color:"#444",marginTop:1}}>
+        <span>{chartData[0]?.date||dateFrom}</span>
+        <span>{chartData[chartData.length-1]?.date||dateTo}</span>
       </div>
     </div>
   );
 }
 
+
+// ── ChainPositions — expandable positions used inside chain view ──────────────
+function ChainPositions({positions, liveSpots, onAddToBuilder}) {
+  const [expanded, setExpanded] = useState(new Set());
+  const toggle = i => setExpanded(prev=>{const n=new Set(prev);n.has(i)?n.delete(i):n.add(i);return n;});
+  const todayStr = new Date().toISOString().slice(0,10);
+  return (
+    <table className="chain-table" style={{marginTop:2}}>
+      <thead>
+        <tr>
+          <th style={{width:28}}>LAB</th>
+          <th>SIDE</th><th>STRIKE</th><th>EXPIRY</th><th>DTE</th>
+          <th>QTY</th><th>ENTRY</th><th>MID</th><th>P&L</th><th>P&L%</th>
+          <th>Δ</th><th>Θ</th><th>IV</th><th>STATUS</th>
+        </tr>
+      </thead>
+      <tbody>
+        {positions.map((p,i)=>{
+          const pct=p.pnl_pct||0;
+          const urg=p.dte<=21?"#ff4d6d":p.dte<=45?"#f5a623":null;
+          const isOpen=expanded.has(i);
+          const spot=spotPrice(liveSpots[p.ticker])||p.mid||0;
+          return (
+            <React.Fragment key={i}>
+              <tr style={{cursor:"pointer",background:isOpen?"rgba(0,229,160,0.03)":"none",
+                borderLeft:`2px solid ${p.direction==="long"?"#00e5a0":"#ff4d6d"}`}}
+                onClick={()=>toggle(i)}>
+                <td style={{padding:"2px 6px"}} onClick={e=>e.stopPropagation()}>
+                  <button onClick={()=>onAddToBuilder&&onAddToBuilder(p)}
+                    title="Add to Builder"
+                    style={{background:"none",border:"1px solid #1e1e1e",color:"#666",
+                      fontFamily:"var(--mono)",fontSize:9,padding:"1px 5px",cursor:"pointer",transition:"all 0.15s"}}
+                    onMouseEnter={e=>{e.currentTarget.style.color="var(--green)";e.currentTarget.style.borderColor="var(--green)";}}
+                    onMouseLeave={e=>{e.currentTarget.style.color="#333";e.currentTarget.style.borderColor="#1e1e1e";}}>+</button>
+                </td>
+                <td style={{color:p.direction==="long"?"#00e5a0":"#ff4d6d",fontSize:10}}>
+                  {p.direction?.toUpperCase()} {p.type}
+                </td>
+                <td className="strike-col">
+                  {fmt(p.strike)}
+                  <span style={{fontSize:8,color:isOpen?"var(--green)":"#444",marginLeft:4}}>
+                    {isOpen?"▾":"▸"}
+                  </span>
+                </td>
+                <td style={{fontSize:10,color:"#999"}}>{p.expiry}</td>
+                <td><span className="dte-badge" style={{fontSize:9,
+                  borderColor:urg?"rgba(255,77,109,0.35)":"#282828",color:urg||"#555"}}>
+                  {p.dte}d</span></td>
+                <td>{p.contracts}</td>
+                <td style={{color:"#999"}}>${fmt(p.entry_price,2)}</td>
+                <td>${fmt(p.mid,2)}</td>
+                <td style={{color:pnlColor(p.pnl),fontWeight:600}}>{p.pnl>=0?"+":""}{fmtUSD(p.pnl)}</td>
+                <td style={{color:pnlColor(pct)}}>{pct>=0?"+":""}{fmt(pct,1)}%</td>
+                <td>{fmt(p.delta,3)}</td>
+                <td style={{color:p.theta<0?"#ff4d6d":"#00e5a0"}}>{fmt(p.theta,2)}</td>
+                <td>{fmtPct(p.iv)}</td>
+                <td>{p.alerts?.length
+                  ?<span style={{color:"#f5a623",fontSize:10,fontWeight:700}}>⚠ ACT</span>
+                  :<span style={{color:"#444",fontSize:10}}>HOLD</span>}</td>
+              </tr>
+              {isOpen&&(
+                <tr><td colSpan={14} style={{padding:"8px 12px",
+                  background:"rgba(0,0,0,0.35)",
+                  borderBottom:"2px solid rgba(0,229,160,0.12)"}}>
+                  {/* Greeks summary */}
+                  <div style={{display:"flex",gap:16,flexWrap:"wrap",marginBottom:8,fontSize:9}}>
+                    {[["Δ DELTA",fmt(p.delta,3),p.delta>0?"#00e5a0":p.delta<0?"#ff4d6d":"#555"],
+                      ["Θ THETA",`${fmt(p.theta,2)}/d`,p.theta<0?"#ff4d6d":"#00e5a0"],
+                      ["IV",fmtPct(p.iv),"#4da8ff"],
+                      ["P&L",`${p.pnl>=0?"+":""}${fmtUSD(p.pnl)}`,pnlColor(p.pnl)],
+                      ["P&L%",`${pct>=0?"+":""}${fmt(pct,1)}%`,pnlColor(pct)],
+                      ["ENTRY",`$${fmt(p.entry_price,2)}`,"#999"],
+                      ["MID",`$${fmt(p.mid,2)}`,"#ccc"],
+                      ["DTE",`${p.dte}d`,p.dte<=21?"#ff4d6d":p.dte<=45?"#f5a623":"#777"],
+                    ].map(([label,val,color])=>(
+                      <div key={label} style={{display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+                        <span style={{color:"#555",letterSpacing:"0.06em"}}>{label}</span>
+                        <span style={{fontWeight:700,color,fontSize:10}}>{val}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {/* IV scenario */}
+                  <div style={{fontSize:9,color:"#666",marginBottom:4}}>
+                    IV SCENARIO — {p.ticker} {p.direction?.toUpperCase()} {p.type}
+                    &nbsp;${fmt(p.strike)} · spot ${fmt(spot)}
+                  </div>
+                  <IVScenarioTable
+                    legs={[{id:0,real:true,type:p.type||"call",dir:p.direction||"long",
+                      strike:parseFloat(p.strike)||0,iv:parseFloat(p.iv)||0.25,
+                      qty:parseInt(p.contracts)||1,dte:parseInt(p.dte)||30,
+                      expiry:p.expiry||"",entry:parseFloat(p.entry_price)||0,
+                      ticker:p.ticker,closing:false}]}
+                    spot0={spot} spot={spot} r={0.04}
+                    analysisDate={todayStr} mode="pnl"/>
+                </td></tr>
+              )}
+            </React.Fragment>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+}
 
 // ── SortTh — hoisted from PortfolioPanel to avoid component-in-render crash ──
 function SortTh({label, sortKey, setSortKey, sortAsc, setSortAsc, colKey, style={}}) {
@@ -1319,15 +1470,30 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
   // ── Spot + IV ─────────────────────────────────────────────────────────────
   const [spotAdj,  setSpotAdj]  = useState(0);
   const [ivShift,  setIvShift]  = useState(0);   // additive % shift on all IVs
-  const spot = spot0*(1+spotAdj/100);
+  const [trackLive,setTrackLive]= useState(true); // auto-sync spot to live price
+
+  // Live price for the primary ticker (from liveSpots or chainData.spot)
+  const liveTicker = ticker || legs[0]?.ticker || "";
+  const liveSpot0  = liveTicker
+    ? (spotPrice(liveSpots[liveTicker]) || spot0)
+    : spot0;
+
+  // When trackLive is on, derive spotAdj to match liveSpot0
+  // When off, use manual spotAdj
+  const effectiveSpotAdj = trackLive
+    ? (liveSpot0 > 0 ? ((liveSpot0/spot0)-1)*100 : 0)
+    : spotAdj;
+
+  const spot = spot0*(1+effectiveSpotAdj/100);
 
   const spotForLeg = useCallback(leg=>{
     if(!leg.real||!leg.ticker) return spot;
     const live=liveSpots[leg.ticker];
-    if(live) return spotPrice(live)*(1+spotAdj/100);
+    // For real legs: always use their own live price (regardless of trackLive)
+    if(live) return spotPrice(live);
     const pos=portData?.positions?.find(p=>p.ticker===leg.ticker);
     return pos?.mid||spot;
-  },[spot,spotAdj,liveSpots,portData]);
+  },[spot,liveSpots,portData]);
 
   const strikes = useMemo(()=>[...new Set(chain.map(c=>c.strike))].sort((a,b)=>a-b),[chain]);
 
@@ -1410,7 +1576,7 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
       });
       return {S:parseFloat(S.toFixed(2)),pnl:parseFloat(pnl.toFixed(2)),expiry:parseFloat(expiry.toFixed(2))};
     });
-  },[legVer,analysisDate,spotAdj,ivShift]);
+  },[legVer,analysisDate,effectiveSpotAdj,ivShift]);
 
   // ── Greeks ────────────────────────────────────────────────────────────────
   const netGreeks=useMemo(()=>effectiveLegs.reduce((acc,l)=>{
@@ -1438,7 +1604,7 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
       pnl:   acc.pnl   + pnl,
     };
   },{delta:0,gamma:0,theta:0,vega:0,value:0,cost:0,pnl:0}),
-  [legVer,analysisDate,spotAdj,ivShift,liveSpots]);
+  [legVer,analysisDate,effectiveSpotAdj,ivShift,liveSpots]);
 
   // Use explicit pnl field so closing positions show exit P&L correctly
   const unrealizedPnl = netGreeks.pnl;
@@ -1472,27 +1638,64 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
   // ── Shared inline panels ──────────────────────────────────────────────────
   const scenarioPanel=(
     <div style={{border:"1px solid var(--border)",padding:"8px 12px",background:"var(--bg1)"}}>
-      {/* Header row with label + reset */}
+      {/* Header row */}
       <div style={{display:"flex",alignItems:"center",marginBottom:7}}>
         <span style={{fontSize:9,color:"#777",letterSpacing:"0.1em",flex:1}}>SCENARIO</span>
-        {(spotAdj!==0||ivShift!==0||analysisDate!==todayStr)&&(
+        {/* Reset: only show when not tracking live and something is non-default */}
+        {(!trackLive&&(spotAdj!==0||ivShift!==0||analysisDate!==todayStr))&&(
           <button
-            onClick={()=>{ setSpotAdj(0); setIvShift(0); setAnalysisDate(todayStr); }}
+            onClick={()=>{ setSpotAdj(0); setIvShift(0); setAnalysisDate(todayStr); setTrackLive(true); }}
             style={{background:"none",border:"1px solid var(--border2)",color:"#777",
-              fontFamily:"var(--mono)",fontSize:9,padding:"1px 8px",cursor:"pointer",
-              transition:"all 0.15s"}}
+              fontFamily:"var(--mono)",fontSize:9,padding:"1px 8px",cursor:"pointer",transition:"all 0.15s"}}
             onMouseEnter={e=>{e.currentTarget.style.color="var(--green)";e.currentTarget.style.borderColor="var(--green)";}}
             onMouseLeave={e=>{e.currentTarget.style.color="#777";e.currentTarget.style.borderColor="var(--border2)";}}>
             ↺ reset
           </button>
         )}
       </div>
-      {/* Two-column layout: sliders left, date right */}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
         <div>
-          <SliderRow label="UNDERLYING" value={spotAdj} min={-25} max={25} step={0.5}
-            onChange={setSpotAdj}
-            display={`${spotAdj>=0?"+":""}${spotAdj.toFixed(1)}%  $${fmt(spot)}`}/>
+          {/* UNDERLYING: LIVE toggle + optional manual slider */}
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6,userSelect:"none"}}>
+            <span style={{fontSize:9,color:"#777",letterSpacing:"0.08em",
+              width:82,flexShrink:0,whiteSpace:"nowrap"}}>UNDERLYING</span>
+            {/* LIVE toggle */}
+            <button
+              onClick={()=>{
+                if(trackLive){
+                  // Switch to manual: freeze current live offset
+                  setSpotAdj(parseFloat(((liveSpot0/spot0-1)*100).toFixed(2)));
+                  setTrackLive(false);
+                } else {
+                  setTrackLive(true);
+                  setSpotAdj(0);
+                }
+              }}
+              style={{
+                background:trackLive?"rgba(0,229,160,0.10)":"none",
+                border:`1px solid ${trackLive?"rgba(0,229,160,0.45)":"var(--border2)"}`,
+                color:trackLive?"var(--green)":"#777",
+                fontFamily:"var(--mono)",fontSize:9,padding:"1px 10px",cursor:"pointer",
+                transition:"all 0.15s",flexShrink:0}}
+              title={trackLive?"Tracking live price — click to set manual offset":"Manual offset — click to track live"}>
+              {trackLive?"● LIVE":"○ LIVE"}
+            </button>
+            {/* Price display */}
+            <span style={{fontSize:10,color:"#ccc",marginLeft:"auto"}}>
+              ${fmt(spot)}
+              {trackLive&&effectiveSpotAdj!==0&&(
+                <span style={{fontSize:9,color:"#555",marginLeft:4}}>
+                  {effectiveSpotAdj>=0?"+":""}{effectiveSpotAdj.toFixed(1)}% vs chain
+                </span>
+              )}
+            </span>
+          </div>
+          {/* Manual slider — only when not tracking live */}
+          {!trackLive&&(
+            <SliderRow label="" value={spotAdj} min={-25} max={25} step={0.5}
+              onChange={setSpotAdj}
+              display={`${spotAdj>=0?"+":""}${spotAdj.toFixed(1)}%`}/>
+          )}
           <SliderRow label="IV SHIFT" value={ivShift} min={-30} max={30} step={0.5}
             onChange={setIvShift}
             display={`${ivShift>=0?"+":""}${ivShift.toFixed(1)}%`}/>
@@ -2496,8 +2699,8 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,setLiveSpots,portData,
                     // Note: openRight after state settles handled by openInRight
                   }}/>
                 {/* Positions for this ticker */}
-                {(() => {
-                  const ticker = activeTab.ticker;
+                {(()=>{
+                  const ticker  = activeTab.ticker;
                   const positions = (portData?.positions||[]).filter(p=>p.ticker===ticker);
                   return (
                     <div style={{marginTop:4}}>
@@ -2520,95 +2723,27 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,setLiveSpots,portData,
                           — no positions held for {ticker}
                         </div>
                       ):(
-                        <table className="chain-table" style={{marginTop:2}}>
-                          <thead>
-                            <tr>
-                              <th style={{width:28}}>LAB</th>
-                              <th>SIDE</th>
-                              <th>STRIKE</th>
-                              <th>EXPIRY</th>
-                              <th>DTE</th>
-                              <th>QTY</th>
-                              <th>ENTRY</th>
-                              <th>MID</th>
-                              <th>P&L</th>
-                              <th>P&L%</th>
-                              <th>Δ</th>
-                              <th>Θ</th>
-                              <th>IV</th>
-                              <th>STATUS</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {positions.map((p,i)=>{
-                              const pct   = p.pnl_pct||0;
-                              const urg   = p.dte<=21?"#ff4d6d":p.dte<=45?"#f5a623":null;
-                              return (
-                                <tr key={i}>
-                                  <td style={{padding:"2px 6px"}}>
-                                    <button
-                                      onClick={()=>{
-                                        const leg={
-                                          id:Date.now(), real:true,
-                                          type:p.type||"call", dir:p.direction||"long",
-                                          strike:parseFloat(p.strike)||0,
-                                          iv:parseFloat(p.iv)||0.25,
-                                          qty:parseInt(p.contracts)||1,
-                                          dte:parseInt(p.dte)||30,
-                                          expiry:p.expiry||"",
-                                          entry:parseFloat(p.entry_price)||0,
-                                          ticker:p.ticker, closing:false,
-                                        };
-                                        if(onOpenRight) onOpenRight(ticker,[leg],true);
-                                      }}
-                                      title="Add to Builder"
-                                      style={{background:"none",border:"1px solid #1e1e1e",
-                                        color:"#666",fontFamily:"var(--mono)",fontSize:9,
-                                        padding:"1px 5px",cursor:"pointer",transition:"all 0.15s"}}
-                                      onMouseEnter={e=>{e.currentTarget.style.color="var(--green)";e.currentTarget.style.borderColor="var(--green)";}}
-                                      onMouseLeave={e=>{e.currentTarget.style.color="#333";e.currentTarget.style.borderColor="#1e1e1e";}}>
-                                      +
-                                    </button>
-                                  </td>
-                                  <td style={{color:p.direction==="long"?"#00e5a0":"#ff4d6d",fontSize:10}}>
-                                    {p.direction?.toUpperCase()} {p.type}
-                                  </td>
-                                  <td className="strike-col">{fmt(p.strike)}</td>
-                                  <td style={{fontSize:10,color:"#999"}}>{p.expiry}</td>
-                                  <td>
-                                    <span className="dte-badge" style={{fontSize:9,
-                                      borderColor:urg?"rgba(255,77,109,0.35)":"#282828",
-                                      color:urg||"#555"}}>
-                                      {p.dte}d
-                                    </span>
-                                  </td>
-                                  <td>{p.contracts}</td>
-                                  <td style={{color:"#999"}}>${fmt(p.entry_price,2)}</td>
-                                  <td>${fmt(p.mid,2)}</td>
-                                  <td style={{color:pnlColor(p.pnl),fontWeight:600}}>
-                                    {p.pnl>=0?"+":""}{fmtUSD(p.pnl)}
-                                  </td>
-                                  <td style={{color:pnlColor(pct)}}>
-                                    {pct>=0?"+":""}{fmt(pct,1)}%
-                                  </td>
-                                  <td>{fmt(p.delta,3)}</td>
-                                  <td style={{color:p.theta<0?"#ff4d6d":"#00e5a0"}}>{fmt(p.theta,2)}</td>
-                                  <td>{fmtPct(p.iv)}</td>
-                                  <td>
-                                    {p.alerts?.length
-                                      ?<span style={{color:"#f5a623",fontSize:10,fontWeight:700}}>⚠ ACT</span>
-                                      :<span style={{color:"#444",fontSize:10}}>HOLD</span>}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
+                        <ChainPositions
+                          positions={positions}
+                          liveSpots={liveSpots}
+                          onAddToBuilder={row=>{
+                            const leg={
+                              id:Date.now(), real:true,
+                              type:row.type||"call", dir:row.direction||"long",
+                              strike:parseFloat(row.strike)||0,
+                              iv:parseFloat(row.iv)||0.25,
+                              qty:parseInt(row.contracts)||1,
+                              dte:parseInt(row.dte)||30,
+                              expiry:row.expiry||"",
+                              entry:parseFloat(row.entry_price)||0,
+                              ticker:row.ticker, closing:false,
+                            };
+                            if(onOpenRight) onOpenRight(ticker,[leg],true);
+                          }}/>
                       )}
                     </div>
                   );
                 })()}
-
                 {/* HV vs ATM IV chart — below positions */}
                 <IVChart
                   ticker={activeTab.ticker}

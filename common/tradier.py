@@ -16,6 +16,18 @@ from dotenv import load_dotenv
 from common.paths import ENV_FILE
 from common.options_chain import greeks, implied_vol, generate_signals, iv_rank, _int
 
+
+def _is_market_hours() -> bool:
+    """True if NYSE regular session is currently open."""
+    from datetime import datetime, time
+    import zoneinfo
+    et   = zoneinfo.ZoneInfo("America/New_York")
+    now  = datetime.now(et)
+    if now.weekday() >= 5:          # Sat/Sun
+        return False
+    t = now.time()
+    return time(9, 30) <= t <= time(16, 0)
+
 BASE_LIVE    = "https://api.tradier.com"
 BASE_SANDBOX = "https://sandbox.tradier.com"
 
@@ -93,7 +105,7 @@ def get_quote_detail(ticker: str) -> dict:
         "price":      price,     "close":      day_close,
         "change":     change,    "change_pct": ch_pct,
         "ah_change":  ah_change, "ah_pct":     ah_pct,
-        "is_ah":      day_close > 0 and abs(price - day_close) > 0.01,
+        "is_ah":      (not _is_market_hours()) and day_close > 0 and abs(price - day_close) > 0.01,
         "bid":        bid,       "ask":        ask,
     }
 
