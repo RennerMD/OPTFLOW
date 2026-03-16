@@ -80,23 +80,17 @@ function SideSection({label,open,onToggle,children,badge,indent=false,headerActi
 // ── ChainTable ─────────────────────────────────────────────────────────────────
 function ChainTable({chain,spot,activeType,onRowClick,limit=50}) {
   const allRows = chain.filter(r=>r.type===activeType);
-  const rows    = limit ? allRows.slice(
-    // Centre the slice on ATM
-    Math.max(0, (() => {
-      if(!spot) return 0;
-      const atmIdx = allRows.reduce((best,r,i)=>
-        Math.abs(r.strike-spot)<Math.abs(allRows[best].strike-spot)?i:best, 0);
-      return Math.max(0, atmIdx - Math.floor(limit/2));
-    })()),
-    (() => {
-      if(!spot) return limit;
-      const atmIdx = allRows.reduce((best,r,i)=>
-        Math.abs(r.strike-spot)<Math.abs(allRows[best].strike-spot)?i:best, 0);
-      return Math.min(allRows.length, Math.max(limit, atmIdx + Math.ceil(limit/2)));
-    })()
-  ) : allRows;
+  const rows = (() => {
+    if(!limit || !allRows.length) return allRows;
+    if(!spot) return allRows.slice(0, limit);
+    const atmIdx = allRows.reduce((best,r,i)=>
+      Math.abs(r.strike-spot) < Math.abs(allRows[best].strike-spot) ? i : best, 0);
+    const start = Math.max(0, atmIdx - Math.floor(limit/2));
+    const end   = Math.min(allRows.length, start + limit);
+    return allRows.slice(start, end);
+  })();
   const cols = ["strike","bid","ask","mid","volume","OI","iv","delta","gamma","theta","vega"];
-  const minDiff = spot ? Math.min(...rows.map(r=>Math.abs(r.strike-spot))) : null;
+  const minDiff = (spot && rows.length) ? Math.min(...rows.map(r=>Math.abs(r.strike-spot))) : null;
   return (
     <div className="chain-scroll">
       <table className="chain-table">
@@ -160,8 +154,25 @@ function IVChart({ticker}) {
   );
 }
 
+// ── SortTh — hoisted from PortfolioPanel to avoid component-in-render crash ──
+function SortTh({label, sortKey, setSortKey, sortAsc, setSortAsc, colKey, style={}}) {
+  const active = sortKey === colKey;
+  return (
+    <th onClick={()=>{
+          if(active) setSortAsc(a=>!a);
+          else { setSortKey(colKey); setSortAsc(true); }
+        }}
+      style={{cursor:"pointer",userSelect:"none",whiteSpace:"nowrap",...style}}>
+      {label}
+      <span style={{fontSize:8,color:active?"var(--green)":"#333",marginLeft:3}}>
+        {active?(sortAsc?"▲":"▼"):"⇅"}
+      </span>
+    </th>
+  );
+}
+
 // ── PortfolioPanel ─────────────────────────────────────────────────────────────
-function PortfolioPanel({data, onTickerOpen, liveSpots={}}) {
+function PortfolioPanel({data, onTickerOpen, liveSpots={}, onAddToBuilder}) {
   const [sortKey,  setSortKey]  = useState("ticker");
   const [sortAsc,  setSortAsc]  = useState(true);
   const [filter,   setFilter]   = useState("");
@@ -182,24 +193,10 @@ function PortfolioPanel({data, onTickerOpen, liveSpots={}}) {
          net_delta:netDelta=0,net_theta:netTheta=0,net_vega:netVega=0} = summary;
 
   // ── Sort + filter ─────────────────────────────────────────────────────────
-  const SORT_KEYS = {
-    ticker:"ticker", type:"type", direction:"direction",
-    strike:"strike", expiry:"expiry", dte:"dte",
-    pnl:"pnl", pnl_pct:"pnl_pct", delta:"delta", theta:"theta", iv:"iv",
-  };
   const toggleSort = key => {
     if(sortKey===key) setSortAsc(a=>!a);
     else { setSortKey(key); setSortAsc(true); }
   };
-  const SortTh = ({k,label,style={}}) => (
-    <th onClick={()=>toggleSort(k)}
-      style={{cursor:"pointer",userSelect:"none",whiteSpace:"nowrap",...style}}>
-      {label}
-      <span style={{fontSize:8,color:sortKey===k?"var(--green)":"#333",marginLeft:3}}>
-        {sortKey===k?(sortAsc?"▲":"▼"):"⇅"}
-      </span>
-    </th>
-  );
 
   const q = filter.trim().toLowerCase();
   const filtered = positions.filter(p=>
@@ -346,22 +343,22 @@ function PortfolioPanel({data, onTickerOpen, liveSpots={}}) {
         <table className="chain-table">
           <thead>
             <tr>
-              <th style={{width:24}}/>
-              <SortTh k="ticker"    label="TICKER"/>
-              <SortTh k="direction" label="SIDE"/>
-              <SortTh k="strike"    label="STRIKE"/>
-              <SortTh k="expiry"    label="EXPIRY"/>
-              <SortTh k="dte"       label="DTE"/>
+              <th title="Add to Builder" style={{width:28}}>LAB</th>
+              <SortTh colKey="ticker" label="TICKER" sortKey={sortKey} setSortKey={setSortKey} sortAsc={sortAsc} setSortAsc={setSortAsc}/>
+              <SortTh colKey="direction" label="SIDE" sortKey={sortKey} setSortKey={setSortKey} sortAsc={sortAsc} setSortAsc={setSortAsc}/>
+              <SortTh colKey="strike" label="STRIKE" sortKey={sortKey} setSortKey={setSortKey} sortAsc={sortAsc} setSortAsc={setSortAsc}/>
+              <SortTh colKey="expiry" label="EXPIRY" sortKey={sortKey} setSortKey={setSortKey} sortAsc={sortAsc} setSortAsc={setSortAsc}/>
+              <SortTh colKey="dte" label="DTE" sortKey={sortKey} setSortKey={setSortKey} sortAsc={sortAsc} setSortAsc={setSortAsc}/>
               <th>QTY</th>
               <th>ENTRY</th>
               <th>MID</th>
-              <SortTh k="pnl"     label="P&L"/>
-              <SortTh k="pnl_pct" label="P&L%"/>
-              <SortTh k="delta"   label="Δ"/>
-              <SortTh k="theta"   label="Θ"/>
-              <SortTh k="iv"      label="IV"/>
+              <SortTh colKey="pnl" label="P&L" sortKey={sortKey} setSortKey={setSortKey} sortAsc={sortAsc} setSortAsc={setSortAsc}/>
+              <SortTh colKey="pnl_pct" label="P&L%" sortKey={sortKey} setSortKey={setSortKey} sortAsc={sortAsc} setSortAsc={setSortAsc}/>
+              <SortTh colKey="delta" label="Δ" sortKey={sortKey} setSortKey={setSortKey} sortAsc={sortAsc} setSortAsc={setSortAsc}/>
+              <SortTh colKey="theta" label="Θ" sortKey={sortKey} setSortKey={setSortKey} sortAsc={sortAsc} setSortAsc={setSortAsc}/>
+              <SortTh colKey="iv" label="IV" sortKey={sortKey} setSortKey={setSortKey} sortAsc={sortAsc} setSortAsc={setSortAsc}/>
               <th>STATUS</th>
-              <th>CHAIN</th>
+              <th title="Open chain">CHAIN</th>
             </tr>
           </thead>
           <tbody>
@@ -380,12 +377,25 @@ function PortfolioPanel({data, onTickerOpen, liveSpots={}}) {
                       <tr style={{cursor:"pointer",
                         background:isOpen?"rgba(0,229,160,0.03)":"none"}}
                         onClick={e=>toggleExpand(i,e)}>
-                        {/* Expand toggle */}
-                        <td style={{textAlign:"center",color:isOpen?"var(--green)":"#333",
-                          fontSize:10,paddingLeft:8}}>
-                          {isOpen?"▾":"▸"}
+                        {/* + Lab button — same style as ChainTable */}
+                        <td style={{padding:"2px 6px"}} onClick={e=>e.stopPropagation()}>
+                          <button
+                            onClick={e=>{e.stopPropagation();if(onAddToBuilder)onAddToBuilder(p);}}
+                            title="Add to Builder"
+                            style={{background:"none",border:"1px solid #1e1e1e",color:"#666",
+                              fontFamily:"var(--mono)",fontSize:9,padding:"1px 5px",cursor:"pointer",
+                              transition:"all 0.15s"}}
+                            onMouseEnter={e=>{e.currentTarget.style.color="var(--green)";e.currentTarget.style.borderColor="var(--green)";}}
+                            onMouseLeave={e=>{e.currentTarget.style.color="#333";e.currentTarget.style.borderColor="#1e1e1e";}}>
+                            +
+                          </button>
                         </td>
-                        <td className="strike-col" style={{fontWeight:700}}>{p.ticker}</td>
+                        <td className="strike-col" style={{fontWeight:700}}>
+                          {p.ticker}
+                          <span style={{fontSize:8,color:isOpen?"var(--green)":"#444",marginLeft:4}}>
+                            {isOpen?"▾":"▸"}
+                          </span>
+                        </td>
                         <td style={{color:p.direction==="long"?"#00e5a0":"#ff4d6d",fontSize:10}}>
                           {p.direction?.toUpperCase()} {p.type}
                         </td>
@@ -415,10 +425,11 @@ function PortfolioPanel({data, onTickerOpen, liveSpots={}}) {
                             ? <span style={{color:"#f5a623",fontSize:10,fontWeight:700}}>⚠ ACT</span>
                             : <span style={{color:"#999",fontSize:10}}>HOLD</span>}
                         </td>
+
                         <td onClick={e=>{e.stopPropagation();onTickerOpen&&onTickerOpen(p.ticker);}}
-                          style={{color:"#999",fontSize:10,cursor:"pointer",padding:"0 8px"}}
+                          style={{color:"#777",fontSize:10,cursor:"pointer",padding:"0 8px"}}
                           onMouseEnter={e=>e.currentTarget.style.color="var(--green)"}
-                          onMouseLeave={e=>e.currentTarget.style.color="#555"}>
+                          onMouseLeave={e=>e.currentTarget.style.color="#777"}>
                           ↗
                         </td>
                       </tr>
@@ -751,7 +762,6 @@ function StrategyPanel({chainData, onLabOpen}) {
 }
 
 
-
 // ── SliderRow — smooth custom slider with manual input ────────────────────────
 // Defined outside LabPanel so it is never remounted during lab state changes.
 
@@ -846,42 +856,9 @@ function bsGreeks(S,K,T,r,sigma,type){
   if(type==="call") return {delta:normCDF(d1),gamma,vega,theta:(-S*pdf*sigma/(2*sqT)-r*K*Math.exp(-r*T)*normCDF(d2))/365};
   return {delta:normCDF(d1)-1,gamma,vega,theta:(-S*pdf*sigma/(2*sqT)+r*K*Math.exp(-r*T)*normCDF(-d2))/365};
 }
-function calcPayoff(legs, spotRange, dteRatio, r=0.04){
-  return spotRange.map(S=>{
-    let pnl=0, expiry=0;
-    legs.forEach(leg=>{
-      // closing=true means we model selling this position (flip sign for exit P&L)
-      const baseSign = leg.dir==="long"?1:-1;
-      const sign     = leg.closing ? -baseSign : baseSign;
-      const T = Math.max(0, leg.dte*dteRatio/365);
-      // For a closing trade: P&L = proceeds from sale minus original cost
-      // entry price is what we originally paid; current price is what we receive
-      const curPrice  = bsPrice(S,leg.strike,T,r,leg.iv,leg.type);
-      const expPrice  = bsPrice(S,leg.strike,0,r,leg.iv,leg.type);
-      if(leg.closing){
-        // Realized: receive current market value, gave up entry cost
-        // At "expiry" of this analysis: receive intrinsic value at that spot
-        pnl    += (curPrice  - leg.entry) * (-baseSign) * 100 * leg.qty;
-        expiry += (expPrice  - leg.entry) * (-baseSign) * 100 * leg.qty;
-      } else {
-        pnl    += sign*(curPrice  - leg.entry)*100*leg.qty;
-        expiry += sign*(expPrice  - leg.entry)*100*leg.qty;
-      }
-    });
-    return {S:parseFloat(S.toFixed(2)),pnl:parseFloat(pnl.toFixed(2)),expiry:parseFloat(expiry.toFixed(2))};
-  });
-}
+
 
 const LEG_COLORS = ["#00e5a0","#4da8ff","#f5a623","#ff4d6d","#9b6dff","#00bcd4"];
-
-// ── LegRow — top-level so React never remounts on lab state change ─────────────
-
-// ── PayoffChart — React.memo prevents remount on unrelated state changes ────────
-
-// ── LabPanel ───────────────────────────────────────────────────────────────────
-
-// ── IVScenarioTable ────────────────────────────────────────────────────────────
-
 
 // ── LegRow — top-level so React never remounts on lab state change ─────────────
 function LegRow({leg, idx, editable, onRemove, onUpdate, pnl=0,
@@ -1060,14 +1037,31 @@ const PayoffChart = React.memo(function PayoffChart({data,legs,chartMode,lo,hi,y
   );
 });
 
-// ── LabPanel ───────────────────────────────────────────────────────────────────
+
+// ── Editable — inline click-to-edit value (hoisted to avoid hooks-in-render) ──
+function Editable({value,draft,setDraft,editing,setEditing,onCommit,suffix}) {
+  if(editing) return (
+    <input autoFocus value={draft} onChange={e=>setDraft(e.target.value)}
+      onBlur={onCommit}
+      onKeyDown={e=>{if(e.key==="Enter")onCommit();if(e.key==="Escape")setEditing(false);}}
+      style={{width:36,background:"var(--bg2)",border:"1px solid var(--green)",color:"#fff",
+        fontFamily:"var(--mono)",fontSize:9,padding:"1px 4px",textAlign:"center",outline:"none"}}/>
+  );
+  return (
+    <span onClick={()=>{setDraft(String(value));setEditing(true);}} title="Click to edit"
+      style={{cursor:"pointer",color:"#00e5a0",borderBottom:"1px dashed #00e5a0"}}
+      onMouseEnter={e=>e.target.style.color="#fff"}
+      onMouseLeave={e=>e.target.style.color="#00e5a0"}>
+      {value}{suffix}
+    </span>
+  );
+}
 
 // ── IVScenarioTable ────────────────────────────────────────────────────────────
 
-const PRICE_ROWS = 9;
-
-function IVScenarioTable({legs, spot0, spot, r, analysisDate, mode}) {
-  const baseIV = legs.length ? Math.round((legs[0].iv||0.25)*100) : 25;
+function IVScenarioTable({legs, spot0, spot, r, analysisDate, mode, ivShiftPct=0}) {
+  // baseIV reflects current leg IV already shifted by ivShiftPct
+  const baseIV = legs.length ? Math.round(((legs[0].iv||0.25))*100) : 25;
   const [ivStep,     setIvStep]    = useState(1);
   const [editIV,     setEditIV]    = useState(false);
   const [ivDraft,    setIvDraft]   = useState("1");
@@ -1103,18 +1097,6 @@ function IVScenarioTable({legs, spot0, spot, r, analysisDate, mode}) {
   const cellBg=v=>{const k=Math.min(1,Math.abs(v)/maxAbs);return mode==="pnl"?v>0?`rgba(0,229,160,${0.07+k*0.33})`:`rgba(255,77,109,${0.07+k*0.33})`:`rgba(77,168,255,${0.05+k*0.28})`;};
   const cellTxt=v=>{const a=Math.abs(v);const s=a>=10000?`$${(a/1000).toFixed(0)}k`:a>=1000?`$${(a/1000).toFixed(1)}k`:`$${a.toFixed(0)}`;return (mode==="pnl"?(v>=0?"+":"-"):"")+s;};
 
-  const Editable=({value,draft,setDraft,editing,setEditing,onCommit,suffix})=>editing?(
-    <input autoFocus value={draft} onChange={e=>setDraft(e.target.value)}
-      onBlur={onCommit} onKeyDown={e=>{if(e.key==="Enter")onCommit();if(e.key==="Escape")setEditing(false);}}
-      style={{width:36,background:"var(--bg2)",border:"1px solid var(--green)",color:"#fff",
-        fontFamily:"var(--mono)",fontSize:9,padding:"1px 4px",textAlign:"center",outline:"none"}}/>
-  ):(
-    <span onClick={()=>{setDraft(String(value));setEditing(true);}} title="Click to edit"
-      style={{cursor:"pointer",color:"#00e5a0",borderBottom:"1px dashed #00e5a0"}}
-      onMouseEnter={e=>e.target.style.color="#fff"} onMouseLeave={e=>e.target.style.color="#00e5a0"}>
-      {value}{suffix}
-    </span>
-  );
 
   return (
     <div>
@@ -1151,7 +1133,7 @@ function IVScenarioTable({legs, spot0, spot, r, analysisDate, mode}) {
                 <tr key={ri} style={{outline:isSpot?"1px solid rgba(255,255,255,0.08)":"none",background:isSpot?"rgba(255,255,255,0.02)":"none"}}>
                   <td style={{padding:"2px 6px",color:isSpot?"#e0e0e0":pct>0?"#00e5a0":"#ff4d6d",
                     borderRight:"1px solid var(--border)",fontWeight:isSpot?700:400,fontSize:8,whiteSpace:"nowrap"}}>
-                    ${S.toFixed(0)}{isSpot?" ◀":pct>=0?` +${pct.toFixed(1)}%`:` ${pct.toFixed(1)}%`}
+                    ${S.toFixed(2)}{isSpot?" ◀":""}
                   </td>
                   {ivCols.map((iv,ci)=>{const v=cellVal(S,iv);return (
                     <td key={ci} style={{padding:"2px 4px",textAlign:"right",background:cellBg(v),
@@ -1170,16 +1152,8 @@ function IVScenarioTable({legs, spot0, spot, r, analysisDate, mode}) {
   );
 }
 
-// ── LegRow — top-level so React never remounts on lab state change ─────────────
 
-// ── PayoffChart — React.memo prevents remount on unrelated state changes ────────
-
-// ── LabPanel ───────────────────────────────────────────────────────────────────
-
-// ── IVScenarioTable ────────────────────────────────────────────────────────────
-// Price × IV heatmap. Each cell shows P&L or theoretical value for the full
-// position at that (underlying price, IV shift) combination on the selected date.
-
+// ── LabPanel ──────────────────────────────────────────────────────────────────
 
 function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liveSpots={}}) {
   const spot0    = chainData?.spot      || 100;
@@ -1233,7 +1207,8 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
   },[analysisDate,todayStr,dte0]);
 
   // ── Spot + IV ─────────────────────────────────────────────────────────────
-  const [spotAdj, setSpotAdj] = useState(0);
+  const [spotAdj,  setSpotAdj]  = useState(0);
+  const [ivShift,  setIvShift]  = useState(0);   // additive % shift on all IVs
   const spot = spot0*(1+spotAdj/100);
 
   const spotForLeg = useCallback(leg=>{
@@ -1289,10 +1264,9 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
   // ── Effective legs (IV only — no DTE here, each leg uses legT) ───────────
   const effectiveLegs=useMemo(()=>legs.map(l=>({
     ...l,
-    iv: Math.max(0.01,(l.iv||0.25)),
-    // Ensure closing flag is preserved for calcPayoff
+    iv: Math.max(0.01,(l.iv||0.25)+(ivShift/100)),
     closing: l.closing||false,
-  })),[legVer]);
+  })),[legVer,ivShift]);
 
   // ── Payoff (using analysisDate for T per leg) ─────────────────────────────
   const lo=spot0*0.75, hi=spot0*1.25, N=80;
@@ -1310,7 +1284,7 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
       });
       return {S:parseFloat(S.toFixed(2)),pnl:parseFloat(pnl.toFixed(2)),expiry:parseFloat(expiry.toFixed(2))};
     });
-  },[legVer,analysisDate,spotAdj]);
+  },[legVer,analysisDate,spotAdj,ivShift]);
 
   // ── Greeks ────────────────────────────────────────────────────────────────
   const netGreeks=useMemo(()=>effectiveLegs.reduce((acc,l)=>{
@@ -1338,7 +1312,7 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
       pnl:   acc.pnl   + pnl,
     };
   },{delta:0,gamma:0,theta:0,vega:0,value:0,cost:0,pnl:0}),
-  [legVer,analysisDate,spotAdj,liveSpots]);
+  [legVer,analysisDate,spotAdj,ivShift,liveSpots]);
 
   // Use explicit pnl field so closing positions show exit P&L correctly
   const unrealizedPnl = netGreeks.pnl;
@@ -1372,25 +1346,45 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
   // ── Shared inline panels ──────────────────────────────────────────────────
   const scenarioPanel=(
     <div style={{border:"1px solid var(--border)",padding:"8px 12px",background:"var(--bg1)"}}>
-      <div style={{fontSize:9,color:"#777",letterSpacing:"0.1em",marginBottom:7}}>SCENARIO</div>
-      <SliderRow label="UNDERLYING" value={spotAdj} min={-25} max={25} step={0.5}
-        onChange={setSpotAdj}
-        display={`${spotAdj>=0?"+":""}${spotAdj.toFixed(1)}%  $${fmt(spot)}`}/>
-      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
-        <span style={{fontSize:9,color:"#777",letterSpacing:"0.08em",width:82,flexShrink:0}}>
-          DATE
-        </span>
-        <input type="date"
-          value={analysisDate}
-          min={todayStr}
-          max={maxExpiry}
-          onChange={e=>setAnalysisDate(e.target.value)}
-          style={{flex:1,background:"var(--bg2)",border:"1px solid var(--border2)",
-            color:"#ccc",fontFamily:"var(--mono)",fontSize:10,padding:"2px 8px",
-            outline:"none",colorScheme:"dark"}}/>
-        <span style={{fontSize:10,color:"#999",width:80,textAlign:"right",flexShrink:0}}>
-          {analysisDate===todayStr?"today":analysisDate}
-        </span>
+      {/* Header row with label + reset */}
+      <div style={{display:"flex",alignItems:"center",marginBottom:7}}>
+        <span style={{fontSize:9,color:"#777",letterSpacing:"0.1em",flex:1}}>SCENARIO</span>
+        {(spotAdj!==0||ivShift!==0||analysisDate!==todayStr)&&(
+          <button
+            onClick={()=>{ setSpotAdj(0); setIvShift(0); setAnalysisDate(todayStr); }}
+            style={{background:"none",border:"1px solid var(--border2)",color:"#777",
+              fontFamily:"var(--mono)",fontSize:9,padding:"1px 8px",cursor:"pointer",
+              transition:"all 0.15s"}}
+            onMouseEnter={e=>{e.currentTarget.style.color="var(--green)";e.currentTarget.style.borderColor="var(--green)";}}
+            onMouseLeave={e=>{e.currentTarget.style.color="#777";e.currentTarget.style.borderColor="var(--border2)";}}>
+            ↺ reset
+          </button>
+        )}
+      </div>
+      {/* Two-column layout: sliders left, date right */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 16px"}}>
+        <div>
+          <SliderRow label="UNDERLYING" value={spotAdj} min={-25} max={25} step={0.5}
+            onChange={setSpotAdj}
+            display={`${spotAdj>=0?"+":""}${spotAdj.toFixed(1)}%  $${fmt(spot)}`}/>
+          <SliderRow label="IV SHIFT" value={ivShift} min={-30} max={30} step={0.5}
+            onChange={setIvShift}
+            display={`${ivShift>=0?"+":""}${ivShift.toFixed(1)}%`}/>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",justifyContent:"center",gap:4}}>
+          <span style={{fontSize:9,color:"#777",letterSpacing:"0.08em"}}>DATE</span>
+          <input type="date"
+            value={analysisDate}
+            min={todayStr}
+            max={maxExpiry}
+            onChange={e=>setAnalysisDate(e.target.value)}
+            style={{background:"var(--bg2)",border:"1px solid var(--border2)",
+              color:"#ccc",fontFamily:"var(--mono)",fontSize:10,padding:"3px 8px",
+              outline:"none",colorScheme:"dark",width:"100%"}}/>
+          <span style={{fontSize:9,color:"#555"}}>
+            {analysisDate===todayStr?"today (current)":analysisDate}
+          </span>
+        </div>
       </div>
     </div>
   );
@@ -1434,7 +1428,8 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
       </div>
       <IVScenarioTable
         legs={effectiveLegs} spot0={spot0} spot={spot} r={r}
-        analysisDate={analysisDate} mode={tableMode}/>
+        analysisDate={analysisDate} mode={tableMode}
+        ivShiftPct={ivShift}/>
     </div>
   );
 
@@ -1483,25 +1478,14 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
     <div style={{display:"flex",flexDirection:"column",gap:8,padding:"8px 12px",
       overflow:"auto",flex:1}}>
 
-      {/* Tabs */}
+      {/* Builder header */}
       <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",
         borderBottom:"1px solid var(--border)",paddingBottom:8}}>
-        <div style={{display:"flex",gap:2}}>
-          {[["positions","▤ POSITIONS"],["builder","⊕ BUILDER"]].map(([v,label])=>(
-            <button key={v} onClick={()=>setLabView(v)}
-              style={{background:labView===v?"rgba(0,229,160,0.08)":"none",
-                border:`1px solid ${labView===v?"rgba(0,229,160,0.35)":"var(--border)"}`,
-                color:labView===v?"var(--green)":"#555",fontFamily:"var(--mono)",
-                fontSize:9,padding:"3px 10px",cursor:"pointer",transition:"all 0.15s"}}>
-              {label}
-            </button>
-          ))}
-        </div>
+        <span style={{fontSize:9,color:"#888",letterSpacing:"0.1em"}}>⊕ BUILDER</span>
         <span style={{fontSize:10,color:"#777",marginLeft:4}}>
           {ticker&&<>{ticker} · </>}${fmt(spot)}
         </span>
-        {labView==="builder"&&(
-          <div style={{marginLeft:"auto",display:"flex",gap:4}}>
+        <div style={{marginLeft:"auto",display:"flex",gap:4}}>
             {legs.some(l=>l.real&&!l.closing)&&(
               <button onClick={exitAll}
                 style={{background:"rgba(245,166,35,0.08)",border:"1px solid rgba(245,166,35,0.3)",
@@ -1531,65 +1515,11 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
                 padding:"3px 10px",cursor:"pointer"}}>
               + LEG
             </button>
-          </div>
-        )}
+        </div>
       </div>
 
-      {/* POSITIONS view */}
-      {labView==="positions"&&(
-        <div style={{display:"flex",flexDirection:"column",gap:4}}>
-          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
-            <span style={{fontSize:9,color:"#777"}}>Click position to add to Builder</span>
-            {ticker&&<span style={{fontSize:9,color:"#4da8ff"}}>Analysis ticker: {ticker}</span>}
-          </div>
-          {allPositions.length===0
-            ?<div style={{padding:"12px",fontSize:10,color:"#666",textAlign:"center",
-                border:"1px dashed var(--border2)"}}>
-               No positions — import via sidebar → Settings → Portfolio Import
-             </div>
-            :allPositions.map((p,i)=>{
-               const leg=posToLeg(p,100+i);
-               const alreadyIn=legs.some(l=>l.real&&l.ticker===p.ticker&&
-                 l.strike===parseFloat(p.strike)&&l.type===p.type);
-               const pnl=legPnl({...leg,iv:Math.max(0.01,leg.iv)});
-               return (
-                 <div key={i} onClick={()=>!alreadyIn&&addPosition(p)}
-                   title={alreadyIn?"Already in Builder":"Add to Builder"}
-                   style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",
-                     background:"var(--bg1)",cursor:alreadyIn?"default":"pointer",
-                     border:"1px solid var(--border)",
-                     borderLeft:`3px solid ${p.direction==="long"?"#00e5a0":"#ff4d6d"}`,
-                     opacity:alreadyIn?0.45:1,transition:"border-color 0.15s"}}
-                   onMouseEnter={e=>{if(!alreadyIn)e.currentTarget.style.borderColor="var(--green)";}}
-                   onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";}}>
-                   <span style={{fontWeight:700,color:"#fff",fontSize:10,width:46}}>{p.ticker}</span>
-                   <span style={{fontSize:9,color:"#999",marginLeft:-2}}>
-                     ${fmt(spotPrice(liveSpots[p.ticker]))||"—"}
-                     {spotIsAH(liveSpots[p.ticker])&&<span style={{fontSize:7,color:"#f5a623",marginLeft:2}}>AH</span>}
-                   </span>
-                   <span style={{fontSize:10,color:p.direction==="long"?"#00e5a0":"#ff4d6d"}}>
-                     {p.direction?.toUpperCase()} {p.type}
-                   </span>
-                   <span style={{fontSize:10,color:"#999"}}>${fmt(p.strike)}</span>
-                   <span style={{fontSize:9,color:"#777"}}>{p.expiry}</span>
-                   <span style={{fontSize:9,color:"#999"}}>{p.contracts}×</span>
-                   <span style={{marginLeft:"auto",fontSize:11,fontWeight:700,color:pnlColor(pnl)}}>
-                     {pnl>=0?"+":""}{fmtUSD(pnl)}
-                   </span>
-                   <span style={{fontSize:9,color:alreadyIn?"#555":"#333",flexShrink:0}}>
-                     {alreadyIn?"● in builder":"+ builder"}
-                   </span>
-                 </div>
-               );
-             })
-          }
-          {allPositions.length>0&&scenarioPanel}
-        </div>
-      )}
-
       {/* BUILDER view */}
-      {labView==="builder"&&(
-        <div style={{display:"flex",flexDirection:"column",gap:5}}>
+      <div style={{display:"flex",flexDirection:"column",gap:5}}>
           {legs.some(l=>l.real)&&(
             <div style={{display:"flex",gap:10,fontSize:9,color:"#999"}}>
               <span><span style={{display:"inline-block",width:12,height:2,background:"#00e5a0",verticalAlign:"middle",marginRight:4}}/>Real</span>
@@ -1600,8 +1530,7 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
           {legs.length===0
             ?<div style={{padding:"16px",fontSize:10,color:"#666",textAlign:"center",
                 border:"1px dashed var(--border2)"}}>
-               Click <b style={{color:"#00e5a0"}}>+ LEG</b> to add a theoretical leg ·
-               or go to <b style={{color:"#4da8ff"}}>POSITIONS</b> to add real holdings
+               Click <b style={{color:"#00e5a0"}}>+ LEG</b> to add a theoretical leg · or use <b style={{color:"#4da8ff"}}>+</b> in Portfolio to add real positions
              </div>
             :legs.map((leg,i)=>(
                <LegRow key={leg.id}
@@ -1615,13 +1544,12 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
           {legs.length>0&&(
             <>
               {scenarioPanel}
-              {ivTable}
               {greeksPanel}
+              {ivTable}
               {chartPanel(legs.some(l=>l.real)?"COMBINED PAYOFF":"PAYOFF DIAGRAM")}
             </>
           )}
-        </div>
-      )}
+      </div>
 
     </div>
   );
@@ -1632,7 +1560,8 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
 
 function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
                   view,setView,watchlist,setWatchlist,liveSpots,
-                  settings,setSettings,recentTickers,fetchPortfolio}) {
+                  settings,setSettings,recentTickers,fetchPortfolio,
+                  splitMode=false,onOpenRight,setSideOpen}) {
 
   const [sections,setSections] = useState(()=>
     recall("optflow_sidebar_sections",
@@ -1649,6 +1578,22 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
   const [polyKey,setPolyKey]       = useState("");
   const [tradierKey,setTradierKey] = useState("");
   const [keyMsg,setKeyMsg]         = useState("");
+  const [priceSource,setPriceSource] = useState("auto");
+
+  // Load current price source on open
+  useEffect(()=>{
+    if(!open) return;
+    fetch(`${API}/price-source`).then(r=>r.json()).then(d=>setPriceSource(d.source||"auto")).catch(()=>{});
+  },[open]);
+
+  const savePriceSource = async(src) => {
+    try {
+      await fetch(`${API}/price-source`,{method:"POST",
+        headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({source:src})});
+      setPriceSource(src);
+    } catch(e){ console.error("Failed to set price source:",e); }
+  };
 
   // Portfolio import state
   const [positions,setPositions]   = useState([]);
@@ -1800,7 +1745,8 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
 
   // Status color helpers
   const apiColor  = serverStatus.api   ==="up" ?"#00e5a0":"serverStatus.api==='checking'"?"#f5a623":"#ff4d6d";
-  const tradierOk = serverStatus.tradier_active;
+  const tradierOk      = serverStatus.tradier_active;
+  const tradierSandbox = serverStatus.tradier_sandbox;
   const polyOk    = serverStatus.polygon_active;
 
   return (
@@ -1834,6 +1780,8 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
               borderColor:tradierOk?"rgba(0,229,160,0.3)":"#1e1e1e",
               color:tradierOk?"#00e5a0":"#333",letterSpacing:"0.06em"}}>
               {tradierOk?"● ":"○ "}TRADIER
+              {tradierSandbox&&<span style={{fontSize:8,color:"#f5a623",marginLeft:4,
+                border:"1px solid rgba(245,166,35,0.4)",padding:"0 4px"}}>SANDBOX</span>}
             </span>
             <span style={{fontSize:9,padding:"2px 6px",border:"1px solid",
               borderColor:polyOk?"rgba(0,229,160,0.3)":"#1e1e1e",
@@ -1864,7 +1812,7 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
 
         {/* ── VIEWS ── */}
         <SideSection label="VIEWS" open={sections.views} onToggle={()=>toggle("views")}>
-          {[["portfolio","▤ PORTFOLIO"],["chain","◫ CHAIN"],["strategy","◆ STRATEGY"]].map(([v,label])=>(
+          {[["portfolio","▤ PORTFOLIO"],["chain","◫ CHAIN"]].map(([v,label])=>(
             <button key={v} onClick={()=>setView(v)} className="side-nav-btn"
               style={{borderLeft:`2px solid ${view===v?"var(--green)":"transparent"}`,
                 color:view===v?"var(--green)":"#999",
@@ -1880,6 +1828,16 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
               )}
             </button>
           ))}
+          {/* Strategy opens right analysis pane */}
+          <button onClick={()=>{ if(onOpenRight) onOpenRight(); setSideOpen(false); }}
+            className="side-nav-btn"
+            style={{borderLeft:`2px solid ${splitMode?"var(--green)":"transparent"}`,
+              color:splitMode?"var(--green)":"#999",
+              background:splitMode?"rgba(0,229,160,0.04)":"none",
+              display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+            <span>◆ STRATEGY / LAB</span>
+            {splitMode&&<span style={{fontSize:9,color:"#00e5a0"}}>● open</span>}
+          </button>
         </SideSection>
 
         {/* ── WATCHLIST ── */}
@@ -1981,6 +1939,37 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
                 </div>
               </div>
               {keyMsg&&<div style={{fontSize:10,color:"#00e5a0"}}>{keyMsg}</div>}
+
+              {/* Price source selector */}
+              <div>
+                <div style={{fontSize:9,color:"#777",marginBottom:5,letterSpacing:"0.08em"}}>
+                  PRICE SOURCE
+                  <span style={{color:"#555",marginLeft:6,fontWeight:400}}>
+                    (spot prices + AH)
+                  </span>
+                </div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:3}}>
+                  {[["auto","AUTO"],["tradier","TRADIER"],["polygon","POLYGON"],["yfinance","YFINANCE"]].map(([val,label])=>(
+                    <button key={val} onClick={()=>savePriceSource(val)}
+                      style={{
+                        background:priceSource===val?"rgba(0,229,160,0.12)":"none",
+                        border:`1px solid ${priceSource===val?"rgba(0,229,160,0.5)":"var(--border2)"}`,
+                        color:priceSource===val?"var(--green)":"#777",
+                        fontFamily:"var(--mono)",fontSize:9,padding:"2px 8px",cursor:"pointer",
+                        transition:"all 0.15s"}}
+                      onMouseEnter={e=>{e.currentTarget.style.borderColor="var(--green)";e.currentTarget.style.color="var(--green)";}}
+                      onMouseLeave={e=>{if(priceSource!==val){e.currentTarget.style.borderColor="var(--border2)";e.currentTarget.style.color="#777";}}}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <div style={{fontSize:9,color:"#555",marginTop:4}}>
+                  {priceSource==="auto"&&"Tradier → Polygon → yfinance"}
+                  {priceSource==="tradier"&&"Tradier only (reg hours; AH via yfinance)"}
+                  {priceSource==="polygon"&&"Polygon only (Starter plan required)"}
+                  {priceSource==="yfinance"&&"yfinance only — best for AH/overnight"}
+                </div>
+              </div>
             </div>
           </SideSection>
 
@@ -2048,7 +2037,8 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
 
 function Pane({tabs,setTabs,nextId,setNextId,liveSpots,setLiveSpots,portData,
                fetchPortfolio,portLoading,recentTickers,setRecentTickers,
-               view,setView,onOpenRight,onActiveTicker,serverStatus={},settings={}}) {
+               view,setView,onOpenRight,onActiveTicker,serverStatus={},settings={},
+               pendingTicker=null,onPendingClear}) {
 
   const [activeTabId,setActiveTabId] = useState(tabs[0]?.id||1);
   const [inputTicker,setInput]       = useState("");
@@ -2075,6 +2065,27 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,setLiveSpots,portData,
     if(onActiveTicker&&activeTab?.ticker) onActiveTicker(activeTabId, activeTab.ticker);
   },[activeTab?.ticker, activeTabId]);
 
+  // Handle external ticker request (from sidebar watchlist/positions)
+  useEffect(()=>{
+    if(!pendingTicker) return;
+    openTicker(pendingTicker);
+    if(onPendingClear) onPendingClear();
+  },[pendingTicker]);
+
+  const updateTab = useCallback((id,patch)=>{
+    setTabs(p=>p.map(t=>t.id===id?{...t,...patch}:t));
+  },[setTabs]);
+
+  const fetchChain = useCallback(async(id,tkr,exp)=>{
+    updateTab(id,{loading:true,error:null});
+    try {
+      const r=await fetch(`${API}/chain/${tkr}${exp?`?expiry=${exp}`:""}`);
+      if(!r.ok) throw new Error((await r.json()).detail);
+      const d=await r.json();
+      updateTab(id,{chainData:d,expiries:d.expiries||[],loading:false,expiry:exp||d.expiry});
+    } catch(e){ updateTab(id,{error:e.message,loading:false}); }
+  },[updateTab]);
+
   // WS live price
   useEffect(()=>{
     const ticker=activeTab?.ticker;
@@ -2093,25 +2104,22 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,setLiveSpots,portData,
     wsRefs.current[ticker]=ws;
   },[activeTab?.ticker]);
 
-  const updateTab = useCallback((id,patch)=>{
-    setTabs(p=>p.map(t=>t.id===id?{...t,...patch}:t));
-  },[setTabs]);
+  // Auto-fetch chain whenever active tab changes and has no data yet
+  useEffect(()=>{
+    if(activeTab&&!activeTab.chainData&&!activeTab.loading&&view==="chain"){
+      fetchChain(activeTab.id, activeTab.ticker, null);
+    }
+  },[activeTab?.id, view]);
 
-  const fetchChain = useCallback(async(id,tkr,exp)=>{
-    updateTab(id,{loading:true,error:null});
-    try {
-      const r=await fetch(`${API}/chain/${tkr}${exp?`?expiry=${exp}`:""}`);
-      if(!r.ok) throw new Error((await r.json()).detail);
-      const d=await r.json();
-      updateTab(id,{chainData:d,expiries:d.expiries||[],loading:false,expiry:exp||d.expiry});
-    } catch(e){ updateTab(id,{error:e.message,loading:false}); }
-  },[updateTab]);
 
   const openTicker = useCallback((tkr)=>{
     const ex=tabs.find(t=>t.ticker===tkr);
     if(ex){
       pushNav(view,activeTabId);
-      setActiveTabId(ex.id); setView("chain"); return;
+      setActiveTabId(ex.id); setView("chain");
+      // Re-fetch if existing tab has stale or missing data
+      if(!ex.chainData&&!ex.loading) fetchChain(ex.id,tkr,null);
+      return;
     }
     pushNav(view,activeTabId);
     const id=nextId; setNextId(n=>n+1);
@@ -2159,7 +2167,12 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,setLiveSpots,portData,
             return (
               <div key={tab.id}
                 className={clsx("ticker-tab",isOpen&&"active")}
-                onClick={()=>{setActiveTabId(tab.id);setView("chain");}}
+                onClick={()=>{
+                  setActiveTabId(tab.id);
+                  setView("chain");
+                  // Fetch immediately if tab has no chain data
+                  if(!tab.chainData&&!tab.loading) fetchChain(tab.id,tab.ticker,null);
+                }}
                 style={{position:"relative",flexShrink:0}}>
                 <span className="ticker-tab-name">{tab.ticker}</span>
                 {(tab.livePrice||tab.chainData?.spot)&&(
@@ -2256,10 +2269,24 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,setLiveSpots,portData,
         {view==="portfolio"&&(
           <>
             {portLoading&&<div className="loading-bar">LOADING…</div>}
-            <PortfolioPanel data={portData} liveSpots={liveSpots} onTickerOpen={tkr=>{
-              openTicker(tkr);
-              if(onOpenRight) onOpenRight(tkr);
-            }}/>
+            <PortfolioPanel data={portData} liveSpots={liveSpots}
+              onTickerOpen={tkr=>{
+                openTicker(tkr);
+                if(onOpenRight) setTimeout(()=>onOpenRight(tkr), 0);
+              }}
+              onAddToBuilder={p=>{
+                const leg={
+                  id:Date.now(), real:true,
+                  type:p.type||"call", dir:p.direction||"long",
+                  strike:parseFloat(p.strike)||0, iv:parseFloat(p.iv)||0.25,
+                  qty:parseInt(p.contracts)||1, dte:parseInt(p.dte)||30,
+                  expiry:p.expiry||"", entry:parseFloat(p.entry_price)||0,
+                  ticker:p.ticker, closing:false,
+                };
+                // Navigate left pane to ticker chain + seed right pane builder
+                openTicker(p.ticker);
+                if(onOpenRight) setTimeout(()=>onOpenRight(p.ticker,[leg],true),0);
+              }}/>
           </>
         )}
 
@@ -2328,9 +2355,124 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,setLiveSpots,portData,
                       iv:row.iv||0.25,qty:1,dte:activeTab.chainData.dte||30,
                       expiry:activeTab.expiry||"",entry:row.mid||row.ask||0};
                     if(onOpenRight) onOpenRight(activeTab.ticker,[leg]);
+                    // Note: openRight after state settles handled by openInRight
                   }}/>
                 {/* IV chart */}
                 <IVChart ticker={activeTab.ticker}/>
+
+                {/* Positions for this ticker */}
+                {(() => {
+                  const ticker = activeTab.ticker;
+                  const positions = (portData?.positions||[]).filter(p=>p.ticker===ticker);
+                  return (
+                    <div style={{marginTop:4}}>
+                      {/* Section header */}
+                      <div style={{display:"flex",alignItems:"center",gap:8,
+                        padding:"6px 0 4px",borderTop:"1px solid var(--border)"}}>
+                        <span style={{fontSize:9,color:"#888",letterSpacing:"0.1em"}}>
+                          POSITIONS — {ticker}
+                        </span>
+                        <span style={{fontSize:9,color:"#555"}}>
+                          {positions.length===0?"none held":
+                           positions.length===1?"1 position":
+                           `${positions.length} positions`}
+                        </span>
+                      </div>
+
+                      {positions.length===0?(
+                        <div style={{padding:"8px 0",fontSize:10,color:"#444",
+                          fontFamily:"var(--mono)",letterSpacing:"0.05em"}}>
+                          — no positions held for {ticker}
+                        </div>
+                      ):(
+                        <table className="chain-table" style={{marginTop:2}}>
+                          <thead>
+                            <tr>
+                              <th style={{width:28}}>LAB</th>
+                              <th>SIDE</th>
+                              <th>STRIKE</th>
+                              <th>EXPIRY</th>
+                              <th>DTE</th>
+                              <th>QTY</th>
+                              <th>ENTRY</th>
+                              <th>MID</th>
+                              <th>P&L</th>
+                              <th>P&L%</th>
+                              <th>Δ</th>
+                              <th>Θ</th>
+                              <th>IV</th>
+                              <th>STATUS</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {positions.map((p,i)=>{
+                              const pct   = p.pnl_pct||0;
+                              const urg   = p.dte<=21?"#ff4d6d":p.dte<=45?"#f5a623":null;
+                              return (
+                                <tr key={i}>
+                                  <td style={{padding:"2px 6px"}}>
+                                    <button
+                                      onClick={()=>{
+                                        const leg={
+                                          id:Date.now(), real:true,
+                                          type:p.type||"call", dir:p.direction||"long",
+                                          strike:parseFloat(p.strike)||0,
+                                          iv:parseFloat(p.iv)||0.25,
+                                          qty:parseInt(p.contracts)||1,
+                                          dte:parseInt(p.dte)||30,
+                                          expiry:p.expiry||"",
+                                          entry:parseFloat(p.entry_price)||0,
+                                          ticker:p.ticker, closing:false,
+                                        };
+                                        if(onOpenRight) onOpenRight(ticker,[leg],true);
+                                      }}
+                                      title="Add to Builder"
+                                      style={{background:"none",border:"1px solid #1e1e1e",
+                                        color:"#666",fontFamily:"var(--mono)",fontSize:9,
+                                        padding:"1px 5px",cursor:"pointer",transition:"all 0.15s"}}
+                                      onMouseEnter={e=>{e.currentTarget.style.color="var(--green)";e.currentTarget.style.borderColor="var(--green)";}}
+                                      onMouseLeave={e=>{e.currentTarget.style.color="#333";e.currentTarget.style.borderColor="#1e1e1e";}}>
+                                      +
+                                    </button>
+                                  </td>
+                                  <td style={{color:p.direction==="long"?"#00e5a0":"#ff4d6d",fontSize:10}}>
+                                    {p.direction?.toUpperCase()} {p.type}
+                                  </td>
+                                  <td className="strike-col">{fmt(p.strike)}</td>
+                                  <td style={{fontSize:10,color:"#999"}}>{p.expiry}</td>
+                                  <td>
+                                    <span className="dte-badge" style={{fontSize:9,
+                                      borderColor:urg?"rgba(255,77,109,0.35)":"#282828",
+                                      color:urg||"#555"}}>
+                                      {p.dte}d
+                                    </span>
+                                  </td>
+                                  <td>{p.contracts}</td>
+                                  <td style={{color:"#999"}}>${fmt(p.entry_price,2)}</td>
+                                  <td>${fmt(p.mid,2)}</td>
+                                  <td style={{color:pnlColor(p.pnl),fontWeight:600}}>
+                                    {p.pnl>=0?"+":""}{fmtUSD(p.pnl)}
+                                  </td>
+                                  <td style={{color:pnlColor(pct)}}>
+                                    {pct>=0?"+":""}{fmt(pct,1)}%
+                                  </td>
+                                  <td>{fmt(p.delta,3)}</td>
+                                  <td style={{color:p.theta<0?"#ff4d6d":"#00e5a0"}}>{fmt(p.theta,2)}</td>
+                                  <td>{fmtPct(p.iv)}</td>
+                                  <td>
+                                    {p.alerts?.length
+                                      ?<span style={{color:"#f5a623",fontSize:10,fontWeight:700}}>⚠ ACT</span>
+                                      :<span style={{color:"#444",fontSize:10}}>HOLD</span>}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </>
@@ -2360,54 +2502,16 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,setLiveSpots,portData,
   );
 }
 
-function AnalysisPane({tabs,setTabs,activeTabId,liveSpots,
-                       labLegs,setLabLegs,onClose,portData,serverStatus={},
-                       pinned=false,onTogglePin}) {
+function AnalysisPane({tabs, activeTabId, liveSpots,
+                       labLegs, setLabLegs, onClose, portData, serverStatus={},
+                       pinned=false, onTogglePin}) {
 
-  const wsRefs = useRef({});
+  // AnalysisPane is a pure reader — it never fetches chains independently.
+  // All chain data comes from tabsA (left pane), preventing double-fetches
+  // and the yfinance race condition.
   const activeTab = tabs.find(t=>t.id===activeTabId)||tabs[0];
   const chainData = activeTab?.chainData;
-
-  // WS live price for this tab
-  useEffect(()=>{
-    const ticker=activeTab?.ticker;
-    if(!ticker||wsRefs.current[ticker]) return;
-    const ws=new WebSocket(`${WS}/stream?tickers=${ticker}`);
-    ws.onmessage=e=>{
-      const d=JSON.parse(e.data);
-      const raw=d[ticker];
-      const price=raw?(typeof raw==="object"?raw.price:raw):null;
-      if(price) setTabs(prev=>prev.map(t=>t.ticker===ticker?{...t,livePrice:price,liveData:raw}:t));
-      // Also update liveSpots for portfolio/lab use
-      if(raw) setLiveSpots&&setLiveSpots(prev=>({...prev,[ticker]:raw}));
-    };
-    ws.onerror=()=>ws.close();
-    ws.onclose=()=>{delete wsRefs.current[ticker];};
-    wsRefs.current[ticker]=ws;
-  },[activeTab?.ticker]);
-
-  const updateTab = useCallback((id,patch)=>{
-    setTabs(p=>p.map(t=>t.id===id?{...t,...patch}:t));
-  },[setTabs]);
-
-  const fetchChain = useCallback(async(id,tkr,exp)=>{
-    updateTab(id,{loading:true,error:null});
-    try {
-      const r=await fetch(`${API}/chain/${tkr}${exp?`?expiry=${exp}`:""}`);
-      if(!r.ok) throw new Error((await r.json()).detail);
-      const d=await r.json();
-      updateTab(id,{chainData:d,expiries:d.expiries||[],loading:false,expiry:exp||d.expiry});
-    } catch(e){ updateTab(id,{error:e.message,loading:false}); }
-  },[updateTab]);
-
-  // Auto-fetch when switching to a tab with no chain data
-  useEffect(()=>{
-    if(activeTab&&!activeTab.chainData&&!activeTab.loading){
-      fetchChain(activeTab.id, activeTab.ticker, null);
-    }
-  },[activeTab?.id]);
-
-  const livePrice = activeTab?.livePrice||chainData?.spot;
+  const livePrice = activeTab?.livePrice || chainData?.spot;
   const src       = chainData?.source;
 
   return (
@@ -2418,7 +2522,6 @@ function AnalysisPane({tabs,setTabs,activeTabId,liveSpots,
       <div style={{display:"flex",alignItems:"center",gap:8,padding:"3px 10px",
         background:"var(--bg1)",borderBottom:"1px solid var(--border)",flexShrink:0}}>
 
-        {/* Ticker + price */}
         <div style={{display:"flex",alignItems:"center",gap:6,flex:1,minWidth:0}}>
           {activeTab?.ticker&&(
             <span style={{fontSize:13,fontWeight:700,color:"#fff"}}>
@@ -2445,7 +2548,7 @@ function AnalysisPane({tabs,setTabs,activeTabId,liveSpots,
           )}
           {chainData&&(
             <span style={{fontSize:9,color:"#666",marginLeft:4}}>
-              IVR <b style={{color:chainData.iv_rank<30?"#00e5a0":
+              IVR&nbsp;<b style={{color:chainData.iv_rank<30?"#00e5a0":
                 chainData.iv_rank>70?"#ff4d6d":"#f5a623"}}>
                 {fmt(chainData.iv_rank,1)}</b>
               &nbsp;·&nbsp;{chainData.dte}d
@@ -2454,7 +2557,7 @@ function AnalysisPane({tabs,setTabs,activeTabId,liveSpots,
           )}
         </div>
 
-        {/* Pin + close */}
+        {/* Pin */}
         <button onClick={onTogglePin}
           title={pinned?"Unpin (follow left pane)":"Pin to current ticker"}
           style={{background:pinned?"rgba(245,166,35,0.1)":"none",
@@ -2462,23 +2565,21 @@ function AnalysisPane({tabs,setTabs,activeTabId,liveSpots,
             color:pinned?"#f5a623":"var(--muted)",fontFamily:"var(--mono)",
             fontSize:9,padding:"2px 8px",cursor:"pointer",transition:"all 0.15s"}}
           onMouseEnter={e=>{e.currentTarget.style.borderColor="#f5a623";e.currentTarget.style.color="#f5a623";}}
-          onMouseLeave={e=>{if(!pinned){e.currentTarget.style.borderColor="var(--border2)";e.currentTarget.style.color="var(--muted)";}}}>
-          {pinned?"📌 PINNED":"○ PIN"}
-        </button>
+          onMouseLeave={e=>{if(!pinned){e.currentTarget.style.borderColor="var(--border2)";e.currentTarget.style.color="var(--muted)";}}}>{pinned?"📌 PINNED":"○ PIN"}</button>
+
+        {/* Close */}
         <button onClick={onClose}
           style={{background:"none",border:"1px solid var(--border2)",
             color:"var(--muted)",fontFamily:"var(--mono)",fontSize:10,
             padding:"2px 6px",cursor:"pointer",transition:"all 0.15s"}}
           onMouseEnter={e=>{e.currentTarget.style.color="var(--red)";e.currentTarget.style.borderColor="var(--red)";}}
-          onMouseLeave={e=>{e.currentTarget.style.color="var(--muted)";e.currentTarget.style.borderColor="var(--border2)";}}>
-          ✕
-        </button>
+          onMouseLeave={e=>{e.currentTarget.style.color="var(--muted)";e.currentTarget.style.borderColor="var(--border2)";}}>✕</button>
       </div>
 
       {/* Error */}
       {activeTab?.error&&<div className="error-bar">⚠ {activeTab.error}</div>}
 
-      {/* Content — pure analysis */}
+      {/* Content */}
       <div style={{flex:1,overflow:"auto",display:"flex",flexDirection:"column"}}>
         {!chainData&&activeTab?.loading&&(
           <div className="loading-bar">FETCHING CHAIN…</div>
@@ -2488,13 +2589,11 @@ function AnalysisPane({tabs,setTabs,activeTabId,liveSpots,
         )}
         {chainData&&(
           <div style={{display:"flex",flexDirection:"column",flex:1}}>
-            {/* Strategy panel */}
             <div style={{padding:"8px 12px",borderBottom:"1px solid var(--border)",
               background:"var(--bg1)",flexShrink:0}}>
               <StrategyPanel chainData={chainData}
                 onLabOpen={legs=>{setLabLegs(legs);}}/>
             </div>
-            {/* Lab panel */}
             <LabPanel chainData={chainData} seedLegs={labLegs}
               portData={portData} onClose={null}
               chainExpiries={activeTab?.expiries||[]}
@@ -2503,14 +2602,14 @@ function AnalysisPane({tabs,setTabs,activeTabId,liveSpots,
         )}
       </div>
 
-      {/* Footer */}
+      {/* Footer — source derived solely from chainData.source (no independent fetch) */}
       <div style={{display:"flex",alignItems:"center",gap:8,padding:"3px 12px",
         borderTop:"1px solid var(--border)",fontSize:10,
         background:"var(--bg1)",flexShrink:0}}>
         <span style={{color:src==="tradier"?"#00e5a0":src==="polygon"?"#4da8ff":
                            !chainData&&serverStatus.tradier_active?"#00e5a0":"#888"}}
           title={src==="tradier"?"Real-time (Tradier)":src==="polygon"?"Real-time (Polygon)":
-                 !chainData&&serverStatus.tradier_active?"Tradier active — awaiting chain":
+                 !chainData&&serverStatus.tradier_active?"Tradier active — load a chain":
                  "15-min delayed (yfinance)"}>
           {src==="tradier"?"● TRADIER":src==="polygon"?"● POLYGON":
            !chainData&&serverStatus.tradier_active?"● TRADIER":
@@ -2523,186 +2622,30 @@ function AnalysisPane({tabs,setTabs,activeTabId,liveSpots,
   );
 }
 
-export default function App() {
-  // Sidebar open state — persisted
-  const [sideOpen,setSideOpen] = useState(()=>recall("optflow_sidebar_open",true));
-  const toggleSide = () => { const n=!sideOpen; setSideOpen(n); persist("optflow_sidebar_open",n); };
 
-  // Split pane
-  const [splitMode,setSplitMode]   = useState(false);
-  const [splitPos,setSplitPos]     = useState(50);
-  const [pinnedRight,setPinnedRight] = useState(false);
-  const [leftActiveTabId,setLeftActiveTabId] = useState(1);
-  const splitDragging = useRef(false);
-
-  // Server status (polled every 5s)
-  const [serverStatus,setServerStatus] = useState({api:"checking"});
-  const statusPoll = useRef(false);
-  const pollStatus = useCallback(async()=>{
-    if (statusPoll.current) return;
-    statusPoll.current=true;
-    try {
-      const r=await fetch(`${API}/health`,{signal:AbortSignal.timeout(4000)});
-      if (!r.ok) throw new Error();
-      const d=await r.json();
-      // Only update state if values changed — prevents cascading re-renders every 5s
-      setServerStatus(prev=>{
-        const next={api:"up",...d};
-        const changed=Object.keys(next).some(k=>prev[k]!==next[k]);
-        return changed?next:prev;
-      });
-    } catch {
-      setServerStatus(prev=>prev.api==="down"?prev:{...prev,api:"down"});
-    }
-    finally { statusPoll.current=false; }
-  },[]);
-  useEffect(()=>{ pollStatus(); const id=setInterval(pollStatus,5000); return ()=>clearInterval(id); },[pollStatus]);
-
-  // Shared state
-  const [nextId,setNextId]   = useState(3);
-  const [liveSpots,setLiveSpots] = useState({});
-  // Shared tabs — both panes reference the same tab list
-  const [tabsA,setTabsA] = useState([{id:1,ticker:"SPY",chainData:null,expiry:null,expiries:[],loading:false,error:null,activeType:"call",livePrice:null}]);
-  const [portData,setPortData]       = useState(null);
-  const [portLoading,setPortLoading] = useState(false);
-  const [watchlist,setWatchlist]     = useState(()=>recall("optflow_watchlist",["SPY","QQQ","NVDA"]));
-  const [settings,setSettings]       = useState(()=>recall("optflow_settings",{chainRows:20,autoRefresh:"on"}));
-  const [recentTickers,setRecentTickers] = useState(()=>recall("optflow_recent",["SPY","QQQ"]));
-  const [view,setView]               = useState("portfolio");
-  // Right pane state (independent)
-  const [labLegsB,setLabLegsB]       = useState([]);
-
-  const fetchPortfolio = useCallback(async()=>{
-    setPortLoading(true);
-    try { const r=await fetch(`${API}/portfolio`); if (r.ok) setPortData(await r.json()); }
-    catch {} finally { setPortLoading(false); }
-  },[]);
-  useEffect(()=>{ fetchPortfolio(); },[]);
-
-  // Stop session handler
-  const handleStop = useCallback(async()=>{
-    if (!window.confirm("Stop all OPTFLOW servers?")) return;
-    try {
-      const r=await fetch(`${API}/shutdown`,{method:"POST"});
-      if (r.ok){ const html=await r.text(); document.open();document.write(html);document.close(); }
-    } catch {}
-  },[]);
-
-  // Open right analysis pane (seeds lab legs if provided)
-  const openInRight = useCallback((ticker, labLegs=[]) => {
-    if(labLegs.length) setLabLegsB(labLegs);
-    setSplitMode(true);
-  }, []);
-
-  // Split divider drag
-  const onSplitDrag = e=>{
-    e.preventDefault(); splitDragging.current=true;
-    const onMove=ev=>{
-      if (!splitDragging.current) return;
-      const c=document.getElementById("pane-container");
-      if (!c) return;
-      const rect=c.getBoundingClientRect();
-      setSplitPos(Math.min(80,Math.max(20,((ev.clientX-rect.left)/rect.width)*100)));
-    };
-    document.addEventListener("mousemove",onMove);
-    document.addEventListener("mouseup",()=>{splitDragging.current=false;},{once:true});
-  };
-
-  return (
-    <>
-      <style>{CSS}</style>
-      <div className="app">
-
-        {/* Header */}
-        <header style={{display:"flex",alignItems:"center",gap:10,padding:"0 12px",
-          height:40,borderBottom:"1px solid var(--border)",background:"var(--bg1)",
-          position:"sticky",top:0,zIndex:100,flexShrink:0}}>
-          <button onClick={toggleSide} title={sideOpen?"Close sidebar":"Open sidebar"}
-            style={{background:"none",border:"none",cursor:"pointer",padding:"3px 4px",
-              display:"flex",flexDirection:"column",gap:3,transition:"opacity 0.15s",
-              opacity:sideOpen?1:0.5}}
-            onMouseEnter={e=>e.currentTarget.style.opacity=1}
-            onMouseLeave={e=>e.currentTarget.style.opacity=sideOpen?1:0.5}>
-            {[0,1,2].map(i=><span key={i} style={{display:"block",width:15,height:2,background:"var(--green)"}}/>)}
-          </button>
-          <span style={{color:"var(--green)",fontSize:15}}>◈</span>
-          <span style={{fontSize:11,fontWeight:700,letterSpacing:"0.15em",color:"#fff"}}>OPTFLOW</span>
-          <div style={{marginLeft:"auto",display:"flex",gap:6}}>
-            <button onClick={()=>{ if(!splitMode){setSplitMode(true);} else {setSplitMode(false);setPinnedRight(false);} }}
-              style={{background:splitMode?"rgba(0,229,160,0.08)":"none",
-                border:`1px solid ${splitMode?"rgba(0,229,160,0.3)":"#282828"}`,
-                color:splitMode?"var(--green)":"#444",fontFamily:"var(--mono)",
-                fontSize:10,padding:"3px 10px",cursor:"pointer",transition:"all 0.15s"}}>
-              {splitMode?"⊟ SINGLE":"⊞ SPLIT"}
-            </button>
-          </div>
-        </header>
-
-        {/* Body: sidebar + panes side by side */}
-        <div style={{display:"flex",flex:1,overflow:"hidden"}}>
-
-          <Sidebar open={sideOpen} serverStatus={serverStatus} onStop={handleStop}
-            portData={portData} onOpenTicker={t=>{
-              if (!tabsA.find(tb=>tb.ticker===t)){
-                const id=nextId; setNextId(n=>n+1);
-                setTabsA(p=>[...p,{id,ticker:t,chainData:null,expiry:null,expiries:[],
-                  loading:false,error:null,activeType:"call",livePrice:null}]);
-              }
-              setView("chain");
-            }}
-            view={view} setView={setView}
-            watchlist={watchlist} setWatchlist={setWatchlist}
-            liveSpots={liveSpots} settings={settings} setSettings={setSettings}
-            recentTickers={recentTickers} fetchPortfolio={fetchPortfolio}/>
-
-          {/* Pane container */}
-          <div id="pane-container" style={{display:"flex",flex:1,overflow:"hidden",position:"relative"}}>
-
-            {/* Pane A — always visible */}
-            <div style={{
-              flex: splitMode ? `0 0 ${splitPos}%` : "1 1 100%",
-              display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0,
-            }}>
-              <Pane tabs={tabsA} setTabs={setTabsA}
-                nextId={nextId} setNextId={setNextId}
-                liveSpots={liveSpots}
-                portData={portData} fetchPortfolio={fetchPortfolio} portLoading={portLoading}
-                recentTickers={recentTickers} setRecentTickers={setRecentTickers}
-                view={view} setView={setView}
-                serverStatus={serverStatus}
-                settings={settings}
-                onOpenRight={openInRight}
-                setLiveSpots={setLiveSpots}
-                onActiveTicker={(tabId,ticker)=>{ setLeftActiveTabId(tabId); }}/>
-            </div>
-
-            {splitMode&&(
-              <>
-                {/* Draggable divider */}
-                <div onMouseDown={onSplitDrag}
-                  style={{width:4,flexShrink:0,background:"var(--border)",
-                    cursor:"col-resize",transition:"background 0.15s",zIndex:10}}
-                  onMouseEnter={e=>e.currentTarget.style.background="var(--green)"}
-                  onMouseLeave={e=>e.currentTarget.style.background="var(--border)"}/>
-                {/* Right pane — analysis (strategy + lab) */}
-                <div style={{flex:"1 1 0",display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
-                  <AnalysisPane
-                    tabs={tabsA} setTabs={setTabsA}
-                    activeTabId={pinnedRight?null:leftActiveTabId}
-                    liveSpots={liveSpots}
-                    labLegs={labLegsB} setLabLegs={setLabLegsB}
-                    portData={portData}
-                    serverStatus={serverStatus}
-                    pinned={pinnedRight} onTogglePin={()=>setPinnedRight(p=>!p)}
-                    onClose={()=>{setSplitMode(false);setPinnedRight(false);}}/>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+// ── ErrorBoundary ─────────────────────────────────────────────────────────────
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = {err:null,info:null}; }
+  static getDerivedStateFromError(err) { return {err}; }
+  componentDidCatch(err,info) { this.setState({info}); console.error("OPTFLOW crash:",err,info); }
+  render() {
+    if(this.state.err) return (
+      <div style={{padding:24,fontFamily:"'IBM Plex Mono',monospace",background:"#0a0a0a",
+        color:"#ff4d6d",height:"100%",overflow:"auto"}}>
+        <div style={{fontSize:12,marginBottom:8,color:"#f5a623"}}>◈ OPTFLOW — RENDER ERROR</div>
+        <div style={{fontSize:11,marginBottom:12,color:"#e0e0e0"}}>{String(this.state.err)}</div>
+        <pre style={{fontSize:9,color:"#666",whiteSpace:"pre-wrap"}}>
+          {this.state.info?.componentStack?.slice(0,600)}
+        </pre>
+        <button onClick={()=>this.setState({err:null,info:null})}
+          style={{marginTop:16,background:"none",border:"1px solid #f5a623",color:"#f5a623",
+            fontFamily:"inherit",fontSize:10,padding:"4px 14px",cursor:"pointer"}}>
+          ↺ Try to recover
+        </button>
       </div>
-    </>
-  );
+    );
+    return this.props.children;
+  }
 }
 
 const CSS = `
@@ -2833,3 +2776,208 @@ const CSS = `
   input[type=number]::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
   input[type=number]{-moz-appearance:textfield;appearance:textfield}
 `;
+
+export default function App() {
+  // Sidebar open state — persisted
+  const [sideOpen,setSideOpen] = useState(()=>recall("optflow_sidebar_open",true));
+  const toggleSide = () => { const n=!sideOpen; setSideOpen(n); persist("optflow_sidebar_open",n); };
+  const closeSide  = () => { setSideOpen(false); persist("optflow_sidebar_open",false); };
+
+  // Split pane
+  const [splitMode,setSplitMode]   = useState(false);
+  const [pendingTicker,setPendingTicker] = useState(null);
+  const [splitPos,setSplitPos]     = useState(50);
+  const [pinnedRight,setPinnedRight] = useState(false);
+  const [leftActiveTabId,setLeftActiveTabId] = useState(1);
+  const splitDragging = useRef(false);
+
+  // Server status (polled every 5s)
+  const [serverStatus,setServerStatus] = useState({api:"checking"});
+  const statusPoll = useRef(false);
+  const pollStatus = useCallback(async()=>{
+    if (statusPoll.current) return;
+    statusPoll.current=true;
+    try {
+      const r=await fetch(`${API}/health`,{signal:AbortSignal.timeout(4000)});
+      if (!r.ok) throw new Error();
+      const d=await r.json();
+      // Only update state if values changed — prevents cascading re-renders every 5s
+      setServerStatus(prev=>{
+        const next={api:"up",...d};
+        const changed=Object.keys(next).some(k=>prev[k]!==next[k]);
+        return changed?next:prev;
+      });
+    } catch {
+      setServerStatus(prev=>prev.api==="down"?prev:{...prev,api:"down"});
+    }
+    finally { statusPoll.current=false; }
+  },[]);
+  useEffect(()=>{ pollStatus(); const id=setInterval(pollStatus,5000); return ()=>clearInterval(id); },[pollStatus]);
+
+  // Shared state
+  const [nextId,setNextId]   = useState(3);
+  const [liveSpots,setLiveSpots] = useState({});
+  // Shared tabs — both panes reference the same tab list
+  const [tabsA,setTabsA] = useState([{id:1,ticker:"SPY",chainData:null,expiry:null,expiries:[],loading:false,error:null,activeType:"call",livePrice:null}]);
+  const [portData,setPortData]       = useState(null);
+  const [portLoading,setPortLoading] = useState(false);
+  const [watchlist,setWatchlist]     = useState(()=>recall("optflow_watchlist",["SPY","QQQ","NVDA"]));
+  const [settings,setSettings]       = useState(()=>recall("optflow_settings",{chainRows:20,autoRefresh:"on"}));
+  const [recentTickers,setRecentTickers] = useState(()=>recall("optflow_recent",["SPY","QQQ"]));
+  const [view,setView]               = useState("portfolio");
+  // Right pane state (independent)
+  const [labLegsB,setLabLegsB]       = useState([]);
+
+  const fetchPortfolio = useCallback(async()=>{
+    setPortLoading(true);
+    try { const r=await fetch(`${API}/portfolio`); if (r.ok) setPortData(await r.json()); }
+    catch {} finally { setPortLoading(false); }
+  },[]);
+  useEffect(()=>{ fetchPortfolio(); },[]);
+
+  // Stop session handler
+  const handleStop = useCallback(async()=>{
+    if (!window.confirm("Stop all OPTFLOW servers?")) return;
+    try {
+      // POST shutdown then navigate to the goodbye page via fetch + blob URL
+      // Avoids document.write which causes Firefox to hard-close
+      const r=await fetch(`${API}/shutdown`,{method:"POST"});
+      if (r.ok){
+        const html = await r.text();
+        const blob = new Blob([html], {type:"text/html"});
+        const url  = URL.createObjectURL(blob);
+        window.location.href = url;
+      }
+    } catch {}
+  },[]);
+
+  // Open right analysis pane (seeds lab legs if provided)
+  const openInRight = useCallback((ticker, labLegs=[], append=false) => {
+    if(labLegs.length){
+      if(append){
+        setLabLegsB(prev=>{
+          // Avoid exact duplicates (same ticker+strike+type)
+          const deduped=labLegs.filter(nl=>
+            !prev.some(el=>el.ticker===nl.ticker&&el.strike===nl.strike&&el.type===nl.type)
+          );
+          return [...prev,...deduped];
+        });
+      } else {
+        setLabLegsB(labLegs);
+      }
+    }
+    setSplitMode(true);
+  }, []);
+
+  // Split divider drag
+  const onSplitDrag = e=>{
+    e.preventDefault(); splitDragging.current=true;
+    const onMove=ev=>{
+      if (!splitDragging.current) return;
+      const c=document.getElementById("pane-container");
+      if (!c) return;
+      const rect=c.getBoundingClientRect();
+      setSplitPos(Math.min(80,Math.max(20,((ev.clientX-rect.left)/rect.width)*100)));
+    };
+    document.addEventListener("mousemove",onMove);
+    document.addEventListener("mouseup",()=>{splitDragging.current=false;},{once:true});
+  };
+
+  return (
+    <>
+      <style>{CSS}</style>
+      <div className="app">
+
+        {/* Header */}
+        <header style={{display:"flex",alignItems:"center",gap:10,padding:"0 12px",
+          height:40,borderBottom:"1px solid var(--border)",background:"var(--bg1)",
+          position:"sticky",top:0,zIndex:100,flexShrink:0}}>
+          <button onClick={toggleSide} title={sideOpen?"Close sidebar":"Open sidebar"}
+            style={{background:"none",border:"none",cursor:"pointer",padding:"3px 4px",
+              display:"flex",flexDirection:"column",gap:3,transition:"opacity 0.15s",
+              opacity:sideOpen?1:0.5}}
+            onMouseEnter={e=>e.currentTarget.style.opacity=1}
+            onMouseLeave={e=>e.currentTarget.style.opacity=sideOpen?1:0.5}>
+            {[0,1,2].map(i=><span key={i} style={{display:"block",width:15,height:2,background:"var(--green)"}}/>)}
+          </button>
+          <span style={{color:"var(--green)",fontSize:15}}>◈</span>
+          <span style={{fontSize:11,fontWeight:700,letterSpacing:"0.15em",color:"#fff"}}>OPTFLOW</span>
+          <div style={{marginLeft:"auto",display:"flex",gap:6}}>
+            <button onClick={()=>{ if(!splitMode){setSplitMode(true);} else {setSplitMode(false);setPinnedRight(false);} }}
+              style={{background:splitMode?"rgba(0,229,160,0.08)":"none",
+                border:`1px solid ${splitMode?"rgba(0,229,160,0.3)":"#282828"}`,
+                color:splitMode?"var(--green)":"#444",fontFamily:"var(--mono)",
+                fontSize:10,padding:"3px 10px",cursor:"pointer",transition:"all 0.15s"}}>
+              {splitMode?"⊟ SINGLE":"⊞ SPLIT"}
+            </button>
+          </div>
+        </header>
+
+        {/* Body: sidebar + panes side by side */}
+        <div style={{display:"flex",flex:1,overflow:"hidden"}}>
+
+          <Sidebar open={sideOpen} serverStatus={serverStatus} onStop={handleStop}
+            portData={portData} onOpenTicker={t=>{
+              setPendingTicker(t);
+              setView("chain");
+            }}
+            view={view} setView={setView}
+            watchlist={watchlist} setWatchlist={setWatchlist}
+            liveSpots={liveSpots} settings={settings} setSettings={setSettings}
+            recentTickers={recentTickers} fetchPortfolio={fetchPortfolio}
+            splitMode={splitMode} onOpenRight={openInRight} setSideOpen={closeSide}/>
+
+          {/* Pane container */}
+          <div id="pane-container" style={{display:"flex",flex:1,overflow:"hidden",position:"relative"}}>
+
+            {/* Pane A — always visible */}
+            <div style={{
+              flex: splitMode ? `0 0 ${splitPos}%` : "1 1 100%",
+              display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0,
+            }}>
+              <Pane tabs={tabsA} setTabs={setTabsA}
+                nextId={nextId} setNextId={setNextId}
+                liveSpots={liveSpots}
+                portData={portData} fetchPortfolio={fetchPortfolio} portLoading={portLoading}
+                recentTickers={recentTickers} setRecentTickers={setRecentTickers}
+                view={view} setView={setView}
+                serverStatus={serverStatus}
+                settings={settings}
+                onOpenRight={openInRight}
+                setLiveSpots={setLiveSpots}
+                pendingTicker={pendingTicker}
+                onPendingClear={()=>setPendingTicker(null)}
+                onActiveTicker={(tabId,ticker)=>{ setLeftActiveTabId(tabId); }}/>
+            </div>
+
+            {splitMode&&(
+              <>
+                {/* Draggable divider */}
+                <div onMouseDown={onSplitDrag}
+                  style={{width:4,flexShrink:0,background:"var(--border)",
+                    cursor:"col-resize",transition:"background 0.15s",zIndex:10}}
+                  onMouseEnter={e=>e.currentTarget.style.background="var(--green)"}
+                  onMouseLeave={e=>e.currentTarget.style.background="var(--border)"}/>
+                {/* Right pane — analysis (strategy + lab) */}
+                <div style={{flex:"1 1 0",display:"flex",flexDirection:"column",overflow:"hidden",minWidth:0}}>
+                  <ErrorBoundary>
+                  <AnalysisPane
+                    tabs={tabsA}
+                    activeTabId={pinnedRight?null:leftActiveTabId}
+                    liveSpots={liveSpots}
+                    labLegs={labLegsB} setLabLegs={setLabLegsB}
+                    portData={portData}
+                    serverStatus={serverStatus}
+                    pinned={pinnedRight} onTogglePin={()=>setPinnedRight(p=>!p)}
+                    onClose={()=>{setSplitMode(false);setPinnedRight(false);}}/>
+                  </ErrorBoundary>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+

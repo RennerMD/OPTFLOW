@@ -224,6 +224,27 @@ async def ws_stream(websocket: WebSocket, tickers: str = Query(...)):
 
 _poly_cache: dict = {"active": None, "error": None, "at": 0.0}
 
+@app.get("/api/price-source")
+async def get_price_source():
+    load_dotenv(str(ENV_FILE), override=True)
+    return {"source": os.getenv("PRICE_SOURCE", "auto")}
+
+@app.post("/api/price-source")
+async def set_price_source(request: Request):
+    body = await request.json()
+    src  = body.get("source", "auto").strip().lower()
+    if src not in ("auto", "tradier", "polygon", "yfinance"):
+        raise HTTPException(400, "source must be auto|tradier|polygon|yfinance")
+    # Write to .env file
+    env_path = ENV_FILE
+    lines = env_path.read_text().splitlines() if env_path.exists() else []
+    lines = [l for l in lines if not l.startswith("PRICE_SOURCE=")]
+    if src != "auto":
+        lines.append(f"PRICE_SOURCE={src}")
+    env_path.write_text("\n".join(lines) + "\n")
+    load_dotenv(str(env_path), override=True)
+    return {"source": src}
+
 @app.get("/api/health")
 async def health():
     load_dotenv(str(ENV_FILE), override=True)
@@ -249,6 +270,10 @@ async def health():
                 _poly_cache = {"active": False, "error": str(e), "at": now}
         poly_active, poly_error = _poly_cache["active"], _poly_cache["error"]
 
+    # Warn if sandbox mode is active (returns fake prices)
+    from common.tradier import _base
+    tradier_sandbox = "sandbox" in _base()
+
     tradier_active, tradier_error = False, None
     try:
         from common.tradier import is_configured
@@ -265,6 +290,7 @@ async def health():
         "polygon_active":     poly_active,
         "polygon_error":      poly_error,
         "tradier_active":     tradier_active,
+        "tradier_sandbox":    tradier_sandbox,
         "tradier_error":      tradier_error,
         "data_source": ("tradier (real-time)" if tradier_active
                         else "polygon (Starter needed)" if poly_active

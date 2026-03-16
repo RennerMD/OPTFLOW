@@ -56,7 +56,8 @@ def get_quote(ticker: str) -> dict:
     return q[0] if isinstance(q, list) else q
 
 def get_quote_detail(ticker: str) -> dict:
-    """Return enriched quote dict with AH-aware price, close, and change."""
+    """Return enriched quote dict. Uses yfinance for AH prices when
+    Tradier dev account has no extended-hours bid/ask (bid==ask==0)."""
     q      = get_quote(ticker)
     last   = float(q.get("last")              or 0)
     bid    = float(q.get("bid")               or 0)
@@ -66,30 +67,34 @@ def get_quote_detail(ticker: str) -> dict:
     change = float(q.get("change")            or 0)
     ch_pct = float(q.get("change_percentage") or 0)
     mid    = round((bid + ask) / 2, 4) if bid > 0 and ask > 0 else 0
+    day_close = close or prev
 
-    # During extended hours, bid/ask mid is more current than last trade.
-    # Prefer mid when it differs from last by more than 0.05% (noise threshold).
-    if mid > 0 and last > 0 and abs(mid - last) / last > 0.0005:
-        price = mid
-    else:
-        price = last or mid or prev or 0
+    # Tradier dev: bid/ask=0 when market closed — no AH quotes available.
+    # Supplement with yfinance which carries pre/post market via fast_info.
+    if bid == 0 and ask == 0:
+        try:
+            from common.data_feeds import _spot_yfinance_enriched
+            yf_data = _spot_yfinance_enriched(ticker)
+            if yf_data["price"] > 0:
+                return {**yf_data, "change": change, "change_pct": ch_pct}
+        except Exception:
+            pass
+        return {"price": last or day_close, "close": day_close,
+                "change": change, "change_pct": ch_pct,
+                "ah_change": 0, "ah_pct": 0, "is_ah": False,
+                "bid": 0, "ask": 0}
 
-    # AH change = price vs regular session close
-    day_close  = close or prev
-    ah_change  = round(price - day_close, 4) if day_close else 0
-    ah_pct     = round((ah_change / day_close) * 100, 3) if day_close else 0
-    is_ah      = day_close > 0 and abs(price - day_close) > 0.01
+    # Regular hours: use mid if it diverges from last (stale last print)
+    price = mid if (mid > 0 and last > 0 and abs(mid-last)/last > 0.0005)             else (last or mid or day_close or 0)
 
+    ah_change = round(price - day_close, 4) if day_close else 0
+    ah_pct    = round((ah_change / day_close) * 100, 3) if day_close else 0
     return {
-        "price":     price,
-        "close":     day_close,
-        "change":    change,
-        "change_pct": ch_pct,
-        "ah_change": ah_change,
-        "ah_pct":    ah_pct,
-        "is_ah":     is_ah,
-        "bid":       bid,
-        "ask":       ask,
+        "price":      price,     "close":      day_close,
+        "change":     change,    "change_pct": ch_pct,
+        "ah_change":  ah_change, "ah_pct":     ah_pct,
+        "is_ah":      day_close > 0 and abs(price - day_close) > 0.01,
+        "bid":        bid,       "ask":        ask,
     }
 
 def get_spot(ticker: str) -> float:
