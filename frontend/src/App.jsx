@@ -1631,25 +1631,30 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
   useEffect(()=>{
     if(!ticker || ticker===prevTicker.current) return;
     prevTicker.current = ticker;
-    // Remove legs that belong to a different ticker
-    // Keep: theoretical legs (no ticker) — NO, clear all for clean slate
-    // Keep: real legs that match the new ticker
-    setLegs(prev=>{
-      const kept = prev.filter(l=>!l.ticker || l.ticker===ticker);
-      // If nothing survived, start empty
-      bumpVer();
-      return kept;
-    });
+    // Full clear on ticker change — all legs (real and theoretical) are
+    // ticker-specific (strikes, IVs, DTE all differ). User re-adds as needed.
+    setLegs([]);
+    setIvShift(0);
+    setSpotAdj(0);
+    setTrackLive(true);
+    setAnalysisDate(new Date().toISOString().slice(0,10));
+    bumpVer();
   },[ticker]);
 
   // ── Sync seedLegs ─────────────────────────────────────────────────────────
-  const prevSeed=useRef(seedLegs);
+  // Sync seedLegs → internal legs whenever the seed changes
+  // Use a version key instead of reference equality so fresh arrays always trigger
+  const seedKey = seedLegs
+    ? seedLegs.map(l=>`${l.ticker||""}_${l.strike}_${l.type}`).join("|")
+    : "";
+  const prevSeedKey = useRef("");
   useEffect(()=>{
-    if(seedLegs&&seedLegs!==prevSeed.current&&seedLegs.length){
-      setLegs(seedLegs); prevSeed.current=seedLegs;
-      setLabView("builder"); bumpVer();
-    }
-  },[seedLegs]);
+    if(!seedLegs||!seedLegs.length) return;
+    if(seedKey===prevSeedKey.current) return;  // exact same legs — skip
+    prevSeedKey.current = seedKey;
+    setLegs([...seedLegs]);
+    bumpVer();
+  },[seedKey]);
 
   // ── Leg helpers ───────────────────────────────────────────────────────────
   const updateLeg=useCallback((id,patch)=>{setLegs(p=>p.map(l=>l.id===id?{...l,...patch}:l));bumpVer();},[bumpVer]);
@@ -3032,12 +3037,14 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,setLiveSpots,portData,
                   selectedStrike={selectedRow?.strike}
                   onSelectRow={row=>{
                     setSelectedRow(row);
-                    setSelectedKey(null);  // deselect position if any
+                    setSelectedKey(null);
                   }}
                   onRowClick={row=>{
                     setSelectedRow(row);
                     setSelectedKey(null);
-                    const leg={id:1,type:row.type,dir:"long",strike:row.strike,
+                    const leg={id:1,
+                      ticker:activeTab.ticker,       // stamp ticker so prevTicker filter works
+                      type:row.type,dir:"long",strike:row.strike,
                       iv:row.iv||0.25,qty:1,dte:activeTab.chainData.dte||30,
                       expiry:activeTab.expiry||"",entry:row.mid||row.ask||0};
                     if(onOpenRight) onOpenRight(activeTab.ticker,[leg]);
@@ -3500,15 +3507,18 @@ export default function App() {
     if(labLegs.length){
       if(append){
         setLabLegsB(prev=>{
-          // Avoid exact duplicates (same ticker+strike+type)
           const deduped=labLegs.filter(nl=>
             !prev.some(el=>el.ticker===nl.ticker&&el.strike===nl.strike&&el.type===nl.type)
           );
           return [...prev,...deduped];
         });
       } else {
-        setLabLegsB(labLegs);
+        // Replace: use a fresh array object so prevSeed ref check always triggers
+        setLabLegsB([...labLegs]);
       }
+    } else {
+      // No legs: clear seeds entirely so LabPanel starts fresh
+      setLabLegsB([]);
     }
     setSplitMode(true);
   }, []);
