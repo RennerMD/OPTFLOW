@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import React from "react";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
+import { LineChart, ComposedChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 
 const API = "http://127.0.0.1:8000/api";
 const WS  = "ws://127.0.0.1:8000/ws";
@@ -131,28 +131,138 @@ function ChainTable({chain,spot,activeType,onRowClick,limit=50}) {
 }
 
 // ── IVChart ────────────────────────────────────────────────────────────────────
-function IVChart({ticker}) {
-  const [data,setData] = useState([]);
+function IVChart({ticker, atmIV=null}) {
+  const [data,   setData] = useState([]);
+  const [refIV,  setRefIV]= useState(null);
+  const [loading,setLoad] = useState(false);
+  const [show, setShow]   = useState({hv20:true,hv30:false,ivrank:false,price:false,premium:true});
+  const toggle = k => setShow(s=>({...s,[k]:!s[k]}));
+
   useEffect(()=>{
+    if(!ticker) return;
+    setLoad(true);
     fetch(`${API}/iv-history/${ticker}`)
-      .then(r=>r.json()).then(d=>setData(d.history||[])).catch(()=>{});
+      .then(r=>r.json())
+      .then(d=>{ setData(d.history||[]); setRefIV(d.atm_iv||null); setLoad(false); })
+      .catch(()=>setLoad(false));
   },[ticker]);
-  if (!data.length) return null;
+
+  const currentIV = atmIV || refIV;
+  if(loading) return <div style={{fontSize:9,color:"#444",padding:"6px 0"}}>Loading vol history…</div>;
+  if(!data.length) return null;
+
+  const chartData = data.map(d=>({
+    ...d,
+    // hv20/hv30/ivrank/close/price come from backend
+    // price mirrors close for secondary-axis display
+    price:   d.close||null,
+    premium: (currentIV!=null&&d.hv20!=null) ? currentIV - d.hv20 : null,
+    iv:      currentIV||null,
+  }));
+
+  const last    = chartData[chartData.length-1]||{};
+  const premium = (currentIV!=null&&last.hv20!=null) ? currentIV - last.hv20 : null;
+  const isRich  = premium!=null && premium>0;
+
+  const volVals = chartData.flatMap(d=>[
+    show.hv20?d.hv20:null, show.hv30?d.hv30:null,
+    show.premium?d.premium:null, currentIV||null
+  ].filter(v=>v!=null));
+  const volMin = volVals.length ? Math.min(...volVals)*0.85 : 0;
+  const volMax = volVals.length ? Math.max(...volVals)*1.2  : 1;
+
+  const SERIES = [
+    {k:"hv20",   label:"HV 20d",   color:"#4da8ff", dash:null,  axis:"left"},
+    {k:"hv30",   label:"HV 30d",   color:"#9b6dff", dash:"3 2", axis:"left"},
+    {k:"ivrank", label:"HV Rank",  color:"#00e5a0", dash:"2 2", axis:"right"},
+    {k:"price",  label:"Price",    color:"#666",    dash:"2 3", axis:"right"},
+    {k:"premium",label:"Vol Prem", color:"#f5a623", dash:"4 2", axis:"left"},
+  ];
+
+  const rgbMap = {"#4da8ff":"77,168,255","#9b6dff":"155,109,255",
+                  "#00e5a0":"0,229,160","#f5a623":"245,166,35","#666":"102,102,102"};
+
   return (
-    <div className="iv-chart-wrap">
-      <div style={{fontSize:10,color:"#777",letterSpacing:"0.1em",marginBottom:6}}>60-DAY HV</div>
-      <ResponsiveContainer width="100%" height={70}>
-        <LineChart data={data} margin={{top:2,right:4,bottom:2,left:4}}>
+    <div style={{marginTop:10}}>
+      {/* Header row */}
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:5,flexWrap:"wrap"}}>
+        <span style={{fontSize:9,color:"#777",letterSpacing:"0.08em"}}>VOL CHART</span>
+        {currentIV&&(
+          <span style={{fontSize:9,color:"#f5a623"}}>
+            ATM IV {fmtPct(currentIV)}
+          </span>
+        )}
+        {premium!=null&&(
+          <span style={{fontSize:9,fontWeight:600,
+            color:isRich?"#ff4d6d":"#00e5a0"}}>
+            {isRich?`▲ IV rich +${fmtPct(premium)}`:`▼ IV cheap −${fmtPct(Math.abs(premium))}`}
+            <span style={{fontSize:8,fontWeight:400,color:"#555",marginLeft:4}}>
+              (ATM IV − HV 20d)
+            </span>
+          </span>
+        )}
+        {/* Toggle buttons */}
+        <div style={{marginLeft:"auto",display:"flex",gap:3,flexWrap:"wrap"}}>
+          {SERIES.map(s=>(
+            <button key={s.k} onClick={()=>toggle(s.k)}
+              style={{
+                background: show[s.k]?`rgba(${rgbMap[s.color]||"100,100,100"},0.15)`:"none",
+                border:`1px solid ${show[s.k]?s.color:"#282828"}`,
+                color: show[s.k]?s.color:"#444",
+                fontFamily:"var(--mono)",fontSize:8,padding:"1px 7px",
+                cursor:"pointer",transition:"all 0.15s"}}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Chart */}
+      <ResponsiveContainer width="100%" height={100}>
+        <ComposedChart data={chartData} margin={{top:2,right:4,bottom:2,left:4}}>
           <XAxis dataKey="date" hide/>
-          <YAxis hide domain={["auto","auto"]}/>
-          <Tooltip contentStyle={{background:"#111",border:"1px solid #232323",fontSize:10}}
-            formatter={v=>`${(v*100).toFixed(1)}%`}/>
-          <Line type="monotone" dataKey="hv" stroke="#4da8ff" dot={false} strokeWidth={1.5}/>
-        </LineChart>
+          <YAxis yAxisId="left"  hide domain={[volMin,volMax]}/>
+          <YAxis yAxisId="right" hide orientation="right" domain={["auto","auto"]}/>
+          <Tooltip
+            contentStyle={{background:"#0d0d0d",border:"1px solid #222",fontSize:9,padding:"4px 8px"}}
+            formatter={(v,name)=>{
+              if(name==="iv") return [`${(v*100).toFixed(1)}%`,"ATM IV (ref)"];
+              const s=SERIES.find(s=>s.k===name);
+              if(!s) return [v,name];
+              if(name==="ivrank") return [`${(v*100).toFixed(0)}th pct`,"HV Rank"];
+              if(name==="price")  return [`$${Number(v).toFixed(2)}`,"Price"];
+              return [`${(v*100).toFixed(1)}%`,s.label];
+            }}
+            labelFormatter={l=>l}/>
+          {/* ATM IV flat reference — always shown */}
+          {currentIV&&(
+            <Line yAxisId="left" type="monotone" dataKey="iv" name="iv"
+              stroke="#f5a623" dot={false} strokeWidth={1} strokeDasharray="4 2"/>
+          )}
+          {/* Toggled series */}
+          {SERIES.filter(s=>show[s.k]).map(s=>(
+            <Line key={s.k}
+              yAxisId={s.axis}
+              type="monotone"
+              dataKey={s.k}
+              name={s.k}
+              stroke={s.color}
+              dot={false}
+              strokeWidth={s.k==="hv20"?1.5:1.2}
+              strokeDasharray={s.dash||"0"}/>
+          ))}
+        </ComposedChart>
       </ResponsiveContainer>
+
+      {/* Date range */}
+      <div style={{display:"flex",justifyContent:"space-between",fontSize:8,color:"#444",marginTop:1}}>
+        <span>{chartData[0]?.date}</span>
+        <span>{chartData[chartData.length-1]?.date}</span>
+      </div>
     </div>
   );
 }
+
 
 // ── SortTh — hoisted from PortfolioPanel to avoid component-in-render crash ──
 function SortTh({label, sortKey, setSortKey, sortAsc, setSortAsc, colKey, style={}}) {
@@ -2385,9 +2495,6 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,setLiveSpots,portData,
                     if(onOpenRight) onOpenRight(activeTab.ticker,[leg]);
                     // Note: openRight after state settles handled by openInRight
                   }}/>
-                {/* IV chart */}
-                <IVChart ticker={activeTab.ticker}/>
-
                 {/* Positions for this ticker */}
                 {(() => {
                   const ticker = activeTab.ticker;
@@ -2501,6 +2608,12 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,setLiveSpots,portData,
                     </div>
                   );
                 })()}
+
+                {/* HV vs ATM IV chart — below positions */}
+                <IVChart
+                  ticker={activeTab.ticker}
+                  atmIV={activeTab.chainData?.atm_iv||null}/>
+
               </div>
             )}
           </>
@@ -2575,13 +2688,15 @@ function AnalysisPane({tabs, activeTabId, liveSpots,
             <span style={{color:"var(--green)",fontSize:8,
               animation:"blink 1s step-start infinite"}}>●</span>
           )}
-          {chainData&&(
-            <span style={{fontSize:9,color:"#666",marginLeft:4}}>
-              IVR&nbsp;<b style={{color:chainData.iv_rank<30?"#00e5a0":
-                chainData.iv_rank>70?"#ff4d6d":"#f5a623"}}>
-                {fmt(chainData.iv_rank,1)}</b>
-              &nbsp;·&nbsp;{chainData.dte}d
-              &nbsp;·&nbsp;<span style={{color:"#4da8ff"}}>{fmtPct(chainData.atm_iv)}</span>
+                    {chainData&&(
+            <span style={{fontSize:9,color:"#555",marginLeft:4,display:"flex",
+              alignItems:"center",gap:4}}>
+              <span>IV Rank&nbsp;<b style={{color:chainData.iv_rank<30?"#00e5a0":
+                chainData.iv_rank>70?"#ff4d6d":"#f5a623"}}>{fmt(chainData.iv_rank,1)}</b></span>
+              <span style={{color:"#333"}}>·</span>
+              <span>{chainData.dte}d</span>
+              <span style={{color:"#333"}}>·</span>
+              <span>ATM IV&nbsp;<span style={{color:"#4da8ff"}}>{fmtPct(chainData.atm_iv)}</span></span>
             </span>
           )}
         </div>

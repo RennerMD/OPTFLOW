@@ -158,16 +158,36 @@ def fetch_chain(ticker: str, expiry: Optional[str] = None, r: float = 0.053) -> 
     return result
 
 
-def fetch_iv_history(ticker: str, days: int = 60):
-    """60-day rolling historical volatility for the IV chart."""
+def fetch_iv_history(ticker: str, days: int = 90):
+    """Return daily vol series for charting:
+      hv20  — 20-day rolling realised vol (annualised)
+      hv30  — 30-day rolling realised vol (annualised)
+      ivrank — rolling HV percentile rank vs trailing 252d (proxy IV Rank)
+      close  — closing price (for secondary axis context)
+    """
     import pandas as pd
     try:
         tk   = yf.Ticker(ticker)
-        hist = tk.history(period="3mo")
+        hist = tk.history(period="18mo")   # need 252d lookback for rank
         if hist.empty:
             return pd.DataFrame()
-        lr = np.log(hist["Close"] / hist["Close"].shift(1)).dropna()
-        hv = lr.rolling(20).std().dropna() * np.sqrt(252)
-        return hv.tail(days).rename("hv").to_frame()
+        lr    = np.log(hist["Close"] / hist["Close"].shift(1)).dropna()
+        hv20  = lr.rolling(20).std() * np.sqrt(252)
+        hv30  = lr.rolling(30).std() * np.sqrt(252)
+        # Rolling HV rank: percentile of hv20 vs trailing 252 trading days
+        def rolling_rank(s, window=252):
+            return s.rolling(window).apply(
+                lambda x: float(np.sum(x <= x[-1])) / len(x), raw=True)
+        hv_rank = rolling_rank(hv20)
+        df = pd.DataFrame({
+            "hv20":   hv20,
+            "hv30":   hv30,
+            "ivrank": hv_rank,
+            "close":  hist["Close"],
+        }).dropna()
+        df = df.tail(days)
+        df.index = df.index.strftime("%Y-%m-%d")
+        df.index.name = "date"
+        return df.reset_index()
     except Exception:
         return pd.DataFrame()

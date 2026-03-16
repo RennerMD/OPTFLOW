@@ -187,13 +187,20 @@ async def get_portfolio(file: Optional[str] = Query(None)):
 
 
 @app.get("/api/iv-history/{ticker}")
-async def get_iv_history(ticker: str, days: int = Query(60)):
+async def get_iv_history(ticker: str, days: int = Query(90)):
     df = fetch_iv_history(ticker.upper(), days)
     if df.empty:
         raise HTTPException(404, "No history available")
-    df.index = df.index.strftime("%Y-%m-%d")
+    # Attach current ATM IV for vol-premium calculation
+    atm_iv = None
+    try:
+        chain_result = await _run(fetch_chain, ticker.upper())
+        atm_iv = chain_result.get("atm_iv")
+    except Exception:
+        pass
     return {"ticker": ticker.upper(),
-            "history": _to_json(df.reset_index().rename(columns={"index": "date"}))}
+            "atm_iv": atm_iv,
+            "history": _to_json(df)}
 
 
 @app.websocket("/ws/stream")
@@ -327,7 +334,7 @@ async def shutdown():
     Firefox stays open because it has a valid page to display.
     """
     async def _kill():
-        await asyncio.sleep(0.8)   # enough for response to reach browser
+        await asyncio.sleep(2.5)   # give browser time to render goodbye page
         pid_file = PID_FILE
         killed = False
         if pid_file.exists():
@@ -338,7 +345,10 @@ async def shutdown():
                 pass
         if not killed:
             import subprocess as _sp, sys as _sys
-            for port in [8000, 5173]:
+            # Only kill port 8000 (API). Leave Vite (5173) alive so
+            # the browser keeps the goodbye page rather than showing
+            # a connection-lost error that closes Firefox.
+            for port in [8000]:
                 if _sys.platform == "win32":
                     r = _sp.run(["netstat","-aon"], capture_output=True, text=True)
                     for line in r.stdout.splitlines():
