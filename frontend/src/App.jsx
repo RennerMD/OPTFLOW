@@ -11,9 +11,21 @@ const fmt     = (v,d=2) => v==null||isNaN(v) ? "—" : Number(v).toFixed(d);
 const fmtPct  = v => v==null ? "—" : `${(v*100).toFixed(1)}%`;
 const fmtK    = v => v==null ? "—" : v>999 ? `${(v/1000).toFixed(1)}k` : String(v);
 const fmtUSD  = v => v==null ? "—" : `$${Math.abs(v).toFixed(2)}`;
+// Client-side market hours guard (NYSE 9:30–16:00 ET, Mon–Fri)
+// Used to suppress stale AH flags that arrive before the server re-ticks
+const isMarketHoursNow = () => {
+  const et = new Date().toLocaleString("en-US",{timeZone:"America/New_York"});
+  const d  = new Date(et);
+  const day = d.getDay();            // 0=Sun,6=Sat
+  if(day===0||day===6) return false;
+  const mins = d.getHours()*60+d.getMinutes();
+  return mins >= 9*60+30 && mins <= 16*60;
+};
+
 // Helpers for enriched spot objects {price, close, ah_change, ah_pct, is_ah}
 const spotPrice = d => d ? (typeof d==="object" ? d.price||0 : d) : 0;
-const spotIsAH  = d => !!(d && typeof d==="object" && d.is_ah);
+// spotIsAH respects both the backend flag AND a live client-side market hours check
+const spotIsAH  = d => !!(d && typeof d==="object" && d.is_ah && !isMarketHoursNow());
 const spotAHPct = d => d && typeof d==="object" ? (d.ah_pct||0) : 0;
 const spotClose = d => d && typeof d==="object" ? (d.close||0) : 0;
 const clsx    = (...c) => c.filter(Boolean).join(" ");
@@ -78,7 +90,7 @@ function SideSection({label,open,onToggle,children,badge,indent=false,headerActi
 }
 
 // ── ChainTable ─────────────────────────────────────────────────────────────────
-function ChainTable({chain,spot,activeType,onRowClick,limit=50}) {
+function ChainTable({chain,spot,activeType,onRowClick,limit=50,selectedStrike=null,onSelectRow}) {
   const allRows = chain.filter(r=>r.type===activeType);
   const rows = (() => {
     if(!limit || !allRows.length) return allRows;
@@ -102,7 +114,19 @@ function ChainTable({chain,spot,activeType,onRowClick,limit=50}) {
           {rows.map((row,i)=>{
             const isATM = minDiff!=null && Math.abs(row.strike-spot)===minDiff;
             return (
-              <tr key={i} className={clsx(row.ITM&&"itm",isATM&&"atm")}>
+              <tr key={i}
+                onClick={()=>{ if(onSelectRow) onSelectRow(row); }}
+                className={clsx(row.ITM&&"itm",isATM&&"atm")}
+                style={{
+                  cursor:onSelectRow?"pointer":"default",
+                  outline: selectedStrike===row.strike?"1px solid rgba(0,229,160,0.6)":"none",
+                  outlineOffset:"-1px",
+                  background: selectedStrike===row.strike
+                    ?"rgba(0,229,160,0.07)"
+                    :(row.ITM?undefined:"none"),
+                  boxShadow: selectedStrike===row.strike
+                    ?"inset 3px 0 0 #00e5a0":"none",
+                }}>
                 {onRowClick&&(
                   <td style={{padding:"2px 6px"}}>
                     <button onClick={()=>onRowClick(row)}
@@ -132,10 +156,11 @@ function ChainTable({chain,spot,activeType,onRowClick,limit=50}) {
 
 // ── IVChart ────────────────────────────────────────────────────────────────────
 function IVChart({ticker, atmIV=null}) {
-  const [allData, setAllData] = useState([]);
-  const [refIV,   setRefIV]  = useState(null);
-  const [loading, setLoad]   = useState(false);
-  const [show,    setShow]   = useState({hv20:true,hv30:false,ivrank:false,price:false,premium:true});
+  const [allData,    setAllData]    = useState([]);
+  const [refIV,      setRefIV]      = useState(null);
+  const [ivFetchedAt,setIvFetchedAt]= useState(null);  // timestamp of last atm_iv fetch
+  const [loading,    setLoad]       = useState(false);
+  const [show,    setShow]   = useState({hv20:true,hv30:false,ivrank:false,price:false,premium:true,omega:false});
   // Date range — default to last 90 days, but user can change
   const todayStr   = new Date().toISOString().slice(0,10);
   const default90  = new Date(Date.now()-90*864e5).toISOString().slice(0,10);
@@ -155,11 +180,39 @@ function IVChart({ticker, atmIV=null}) {
     // Fetch full history (365d) once; filter client-side by date range
     fetch(`${API}/iv-history/${ticker}?days=365`)
       .then(r=>r.json())
-      .then(d=>{ setAllData(d.history||[]); setRefIV(d.atm_iv||null); setLoad(false); })
+      .then(d=>{
+        setAllData(d.history||[]);
+        setRefIV(d.atm_iv||null);
+        if(d.atm_iv) setIvFetchedAt(new Date());
+        setLoad(false);
+      })
       .catch(()=>setLoad(false));
   },[ticker]);
 
+  // Refresh atm_iv every 5 minutes while the chart is visible
+  // (history data is stable; only the reference IV needs freshening)
+  useEffect(()=>{
+    if(!ticker) return;
+    const refresh = ()=>{
+      fetch(`${API}/iv-history/${ticker}?days=1`)   // minimal fetch — just need atm_iv
+        .then(r=>r.json())
+        .then(d=>{
+          if(d.atm_iv){ setRefIV(d.atm_iv); setIvFetchedAt(new Date()); }
+        })
+        .catch(()=>{});
+    };
+    const id = setInterval(refresh, 5*60*1000);   // every 5 minutes
+    return ()=>clearInterval(id);
+  },[ticker]);
+
+  // Use the prop value (from live chain) if available, else our own fetched value
+  // The prop updates whenever the chain is re-fetched (e.g. expiry change)
   const currentIV = atmIV || refIV;
+  // Track when the displayed ATM IV was last updated
+  // atmIV prop updates are tracked by the parent; refIV by ivFetchedAt
+  const ivAge = ivFetchedAt
+    ? Math.round((Date.now()-ivFetchedAt)/60000)   // minutes ago
+    : null;
 
   // Filter by date range client-side
   const data = allData.filter(d=>d.date>=dateFrom && d.date<=dateTo);
@@ -191,9 +244,11 @@ function IVChart({ticker, atmIV=null}) {
     {k:"ivrank", label:"HV Rank",  color:"#00e5a0", dash:"2 2", axis:"right"},
     {k:"price",  label:"Price",    color:"#666",    dash:"2 3", axis:"right"},
     {k:"premium",label:"Vol Prem", color:"#f5a623", dash:"4 2", axis:"left"},
+    {k:"omega",  label:"Elasticity",color:"#ff4d6d", dash:"2 2", axis:"omega"},
   ];
   const rgbMap = {"#4da8ff":"77,168,255","#9b6dff":"155,109,255",
-                  "#00e5a0":"0,229,160","#f5a623":"245,166,35","#666":"102,102,102"};
+                  "#00e5a0":"0,229,160","#f5a623":"245,166,35",
+                  "#666":"102,102,102","#ff4d6d":"255,77,109"};
 
   return (
     <div style={{marginTop:10}}>
@@ -201,7 +256,12 @@ function IVChart({ticker, atmIV=null}) {
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4,flexWrap:"wrap"}}>
         <span style={{fontSize:9,color:"#777",letterSpacing:"0.08em"}}>VOL CHART</span>
         {currentIV&&(
-          <span style={{fontSize:9,color:"#f5a623"}}>ATM IV {fmtPct(currentIV)}</span>
+          <span style={{fontSize:9,color:"#f5a623",display:"flex",alignItems:"center",gap:4}}>
+            ATM IV {fmtPct(currentIV)}
+            <span style={{fontSize:8,color:"#666",fontWeight:400}} title="ATM IV is a point-in-time snapshot — refreshes every 5 min">
+              {atmIV?"(chain)":ivAge!=null?"("+( ivAge===0?"just now":ivAge+"m ago")+")" :"(snapshot)"}
+            </span>
+          </span>
         )}
         {premium!=null&&(
           <span style={{fontSize:9,fontWeight:600,color:isRich?"#ff4d6d":"#00e5a0"}}>
@@ -267,11 +327,13 @@ function IVChart({ticker, atmIV=null}) {
           <XAxis dataKey="date" hide/>
           <YAxis yAxisId="left"  hide domain={[volMin,volMax]}/>
           <YAxis yAxisId="right" hide orientation="right" domain={["auto","auto"]}/>
+          <YAxis yAxisId="omega" hide orientation="right" domain={["auto","auto"]}/>
           <Tooltip
             contentStyle={{background:"#0d0d0d",border:"1px solid #222",
               fontSize:9,padding:"4px 8px"}}
             formatter={(v,name)=>{
-              if(name==="iv") return [`${(v*100).toFixed(1)}%`,"ATM IV (ref)"];
+              if(name==="iv")    return [`${(v*100).toFixed(1)}%`,"ATM IV (ref)"];
+              if(name==="omega") return [`${Number(v).toFixed(1)}×`,"Elasticity Ω"];
               const s=SERIES.find(s=>s.k===name);
               if(!s) return [v,name];
               if(name==="ivrank") return [`${(v*100).toFixed(0)}th pct`,"HV Rank"];
@@ -313,7 +375,7 @@ function IVChart({ticker, atmIV=null}) {
 
 
 // ── ChainPositions — expandable positions used inside chain view ──────────────
-function ChainPositions({positions, liveSpots, onAddToBuilder}) {
+function ChainPositions({positions, liveSpots, onAddToBuilder, onSelectRow, selectedKey=null}) {
   const [expanded, setExpanded] = useState(new Set());
   const toggle = i => setExpanded(prev=>{const n=new Set(prev);n.has(i)?n.delete(i):n.add(i);return n;});
   const todayStr = new Date().toISOString().slice(0,10);
@@ -335,9 +397,38 @@ function ChainPositions({positions, liveSpots, onAddToBuilder}) {
           const spot=spotPrice(liveSpots[p.ticker])||p.mid||0;
           return (
             <React.Fragment key={i}>
-              <tr style={{cursor:"pointer",background:isOpen?"rgba(0,229,160,0.03)":"none",
-                borderLeft:`2px solid ${p.direction==="long"?"#00e5a0":"#ff4d6d"}`}}
-                onClick={()=>toggle(i)}>
+              {/* Build a row-compatible shape for OptionAnalysis */}
+              {/* Key = ticker+type+strike+expiry to uniquely identify */}
+              {(()=>{
+                const rowKey=`${p.ticker}_${p.type}_${p.strike}_${p.expiry}`;
+                const isSelected=selectedKey===rowKey;
+                const analysisRow={
+                  strike:parseFloat(p.strike)||0,
+                  type:p.type,
+                  iv:parseFloat(p.iv)||0,
+                  delta:parseFloat(p.delta)||0,
+                  theta:parseFloat(p.theta)||0,
+                  gamma:parseFloat(p.gamma)||0,
+                  vega:parseFloat(p.vega)||0,
+                  bid:parseFloat(p.bid)||parseFloat(p.entry_price)||0,
+                  ask:parseFloat(p.ask)||parseFloat(p.mid)||0,
+                  mid:parseFloat(p.mid)||0,
+                  volume:p.volume||0,
+                  OI:p.OI||p.open_interest||0,
+                  expiry:p.expiry||""
+                };
+                return (
+              <tr style={{
+                  cursor:"pointer",
+                  outline:isSelected?"1px solid rgba(0,229,160,0.6)":"none",
+                  outlineOffset:"-1px",
+                  background:isSelected?"rgba(0,229,160,0.07)":isOpen?"rgba(0,229,160,0.03)":"none",
+                  boxShadow:isSelected?"inset 3px 0 0 #00e5a0":
+                    `inset 2px 0 0 ${p.direction==="long"?"#00e5a0":"#ff4d6d"}`}}
+                onClick={()=>{
+                  toggle(i);
+                  if(onSelectRow) onSelectRow(analysisRow, rowKey);
+                }}>
                 <td style={{padding:"2px 6px"}} onClick={e=>e.stopPropagation()}>
                   <button onClick={()=>onAddToBuilder&&onAddToBuilder(p)}
                     title="Add to Builder"
@@ -371,6 +462,8 @@ function ChainPositions({positions, liveSpots, onAddToBuilder}) {
                   ?<span style={{color:"#f5a623",fontSize:10,fontWeight:700}}>⚠ ACT</span>
                   :<span style={{color:"#444",fontSize:10}}>HOLD</span>}</td>
               </tr>
+                ); /* end return from IIFE */
+              })()}
               {isOpen&&(
                 <tr><td colSpan={14} style={{padding:"8px 12px",
                   background:"rgba(0,0,0,0.35)",
@@ -1259,41 +1352,77 @@ function LegRow({leg, idx, editable, onRemove, onUpdate, pnl=0,
 }
 
 // ── PayoffChart — React.memo prevents remount on unrelated state changes ────────
-const PayoffChart = React.memo(function PayoffChart({data,legs,chartMode,lo,hi,yDom,r,currentSpot=null}){
+const PayoffChart = React.memo(function PayoffChart({data,legs,chartMode,lo,hi,yDom,r,currentSpot=null,showElasticity=true}){
+  // Compute elasticity per price point for the full position (simple mode)
+  // Ω(S) = Σ [Δ_i(S) × (S / V_i(S)) × sign_i × qty_i] / Σ [|qty_i| * V_i(S)]
+  const elastData = useMemo(()=>{
+    if(!showElasticity||!legs.length) return [];
+    return data.map(d=>{
+      let num=0,den=0;
+      legs.forEach(l=>{
+        const sign=l.dir==="long"?1:-1;
+        const T=Math.max(0.001,(l.dte||30)/365);
+        const g=bsGreeks(d.S,l.strike,T,r,l.iv||0.25,l.type);
+        const v=bsPrice(d.S,l.strike,T,r,l.iv||0.25,l.type);
+        if(v>0.001){
+          const wt=Math.abs(l.qty*(v*100));
+          num+=g.delta*(d.S/v)*sign*wt;
+          den+=wt;
+        }
+      });
+      return {...d, omega: den>0?(num/den):null};
+    });
+  },[data,legs,r,showElasticity]);
+
+  const omegaVals=elastData.map(d=>d.omega).filter(v=>v!=null&&isFinite(v));
+  const omMin=omegaVals.length?Math.min(...omegaVals)*1.1:-20;
+  const omMax=omegaVals.length?Math.max(...omegaVals)*1.1:20;
+
   return (
     <ResponsiveContainer width="100%" height={190}>
-      <LineChart data={data} margin={{top:4,right:8,bottom:4,left:48}}>
+      <ComposedChart data={elastData.length?elastData:data} margin={{top:4,right:8,bottom:4,left:48}}>
         <XAxis dataKey="S" type="number" domain={[lo,hi]}
           tickFormatter={v=>`$${v.toFixed(0)}`}
           tick={{fontSize:9,fill:"#444"}} tickLine={false} axisLine={false}/>
-        <YAxis domain={yDom}
+        <YAxis yAxisId="pnl" domain={yDom}
           tickFormatter={v=>v>=0?`+$${v.toFixed(0)}`:`-$${Math.abs(v).toFixed(0)}`}
           tick={{fontSize:9,fill:"#444"}} tickLine={false} axisLine={false} width={46}/>
-        <Tooltip contentStyle={{background:"#111",border:"1px solid #232323",fontSize:10}}
-          formatter={(v,n)=>[`${v>=0?"+":""}$${v.toFixed(2)}`,n]}
+        {showElasticity&&<YAxis yAxisId="omega" orientation="right" domain={[omMin,omMax]}
+          tickFormatter={v=>`${v.toFixed(0)}×`}
+          tick={{fontSize:8,fill:"#444"}} tickLine={false} axisLine={false} width={28}/>}
+        <Tooltip contentStyle={{background:"#111",border:"1px solid #232323",fontSize:9}}
+          formatter={(v,n)=>{
+            if(n==="omega") return v!=null?[`${v.toFixed(1)}×`,"Elasticity Ω"]:[null,null];
+            return [`${v>=0?"+":""}$${v.toFixed(2)}`,n];
+          }}
           labelFormatter={v=>`$${Number(v).toFixed(2)}`}/>
         {/* Zero P&L line */}
-        <Line type="monotone" dataKey={()=>0} stroke="#1e1e1e" strokeWidth={1}
+        <Line yAxisId="pnl" type="monotone" dataKey={()=>0} stroke="#1e1e1e" strokeWidth={1}
           dot={false} legendType="none" tooltipType="none"/>
-        {/* Current spot reference line */}
-        {currentSpot&&<ReferenceLine x={parseFloat(currentSpot.toFixed(2))}
+        {currentSpot&&<ReferenceLine yAxisId="pnl" x={parseFloat(currentSpot.toFixed(2))}
           stroke="rgba(255,255,255,0.25)" strokeDasharray="3 3"
           label={{value:`$${currentSpot.toFixed(0)}`,position:"top",
                   fill:"#666",fontSize:9,fontFamily:"var(--mono)"}}/>}
         {chartMode==="simple"&&<>
-          <Line type="monotone" dataKey="expiry" stroke="#00e5a0" strokeWidth={2} dot={false} name="At Expiry"/>
-          <Line type="monotone" dataKey="pnl" stroke="#4da8ff" strokeWidth={1.5} dot={false} strokeDasharray="4 3" name="Now"/>
+          <Line yAxisId="pnl" type="monotone" dataKey="expiry" stroke="#00e5a0" strokeWidth={2} dot={false} name="At Expiry"/>
+          <Line yAxisId="pnl" type="monotone" dataKey="pnl" stroke="#4da8ff" strokeWidth={1.5} dot={false} strokeDasharray="4 3" name="Now"/>
         </>}
         {chartMode==="multi"&&legs.map((leg,i)=>{
           const sign=leg.dir==="long"?1:-1;
           const c=leg.real?(leg.dir==="long"?"#00e5a0":"#ff4d6d"):LEG_COLORS[i%LEG_COLORS.length];
-          return <Line key={leg.id} type="monotone"
+          return <Line yAxisId="pnl" key={leg.id} type="monotone"
             dataKey={d=>sign*(bsPrice(d.S,leg.strike,0,r,(leg.iv||0.25),leg.type)-leg.entry)*100*leg.qty}
             stroke={c} strokeWidth={1.5} dot={false} strokeDasharray={leg.real?undefined:"4 3"}
             name={`${leg.real?leg.ticker||"REAL":"THEO"} ${leg.dir} ${leg.type} $${leg.strike}`}/>;
         })}
-        {chartMode==="multi"&&<Line type="monotone" dataKey="expiry" stroke="#fff" strokeWidth={2.5} dot={false} name="Combined"/>}
-      </LineChart>
+        {chartMode==="multi"&&<Line yAxisId="pnl" type="monotone" dataKey="expiry" stroke="#fff" strokeWidth={2.5} dot={false} name="Combined"/>}
+        {/* Elasticity overlay — right axis, amber dashed */}
+        {showElasticity&&elastData.length>0&&(
+          <Line yAxisId="omega" type="monotone" dataKey="omega"
+            stroke="#f5a623" strokeWidth={1} dot={false} strokeDasharray="3 2"
+            name="omega" connectNulls/>
+        )}
+      </ComposedChart>
     </ResponsiveContainer>
   );
 });
@@ -1597,17 +1726,27 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
     const pnl = l.closing
       ? (l.entry - cur)*100*l.qty*Math.abs(holdSign)  // exit: receive current, paid entry
       : valueTotal - entryTotal;
+    // Elasticity (Omega/Lambda): % change in option price per 1% change in underlying
+    // Ω = Δ × (S / V)  — per leg; sum across legs weighted by dollar exposure
+    const omega = cur > 0.001 ? g.delta * (S / cur) : 0;
+    const omegaWt = Math.abs(holdSign * l.qty * cur * 100); // dollar exposure weight
     return {
       delta, gamma, theta, vega,
-      value: acc.value + (l.closing ? (cur*100*l.qty) : valueTotal),
-      cost:  acc.cost  + (l.entry*100*l.qty),
-      pnl:   acc.pnl   + pnl,
+      value:   acc.value   + (l.closing ? (cur*100*l.qty) : valueTotal),
+      cost:    acc.cost    + (l.entry*100*l.qty),
+      pnl:     acc.pnl     + pnl,
+      omegaNum: acc.omegaNum + omega * omegaWt,
+      omegaDen: acc.omegaDen + omegaWt,
     };
-  },{delta:0,gamma:0,theta:0,vega:0,value:0,cost:0,pnl:0}),
+  },{delta:0,gamma:0,theta:0,vega:0,value:0,cost:0,pnl:0,omegaNum:0,omegaDen:0}),
   [legVer,analysisDate,effectiveSpotAdj,ivShift,liveSpots]);
 
   // Use explicit pnl field so closing positions show exit P&L correctly
   const unrealizedPnl = netGreeks.pnl;
+  // Net elasticity: exposure-weighted average omega across all legs
+  const netOmega = netGreeks.omegaDen > 0
+    ? netGreeks.omegaNum / netGreeks.omegaDen
+    : 0;
 
 
   const legPnl=useCallback(l=>{
@@ -1718,7 +1857,7 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
     </div>
   );
 
-  const chartPanel=title=>(
+  const chartPanel=(title,showElast=false)=>(
     <div style={{border:"1px solid var(--border)",padding:"8px 12px",background:"var(--bg1)"}}>
       <div style={{display:"flex",alignItems:"center",marginBottom:6}}>
         <span style={{fontSize:9,color:"#777",letterSpacing:"0.1em",flex:1}}>{title}</span>
@@ -1771,6 +1910,8 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
             ["Γ GAMMA",netGreeks.gamma.toFixed(4),"#4da8ff"],
             ["Θ THETA",`${netGreeks.theta.toFixed(2)}/d`,netGreeks.theta<0?"#ff4d6d":"#00e5a0"],
             ["V VEGA", netGreeks.vega.toFixed(3),"#9b6dff"],
+            ["Ω ELAST",`${netOmega>=0?"+":""}${netOmega.toFixed(1)}×`,
+              Math.abs(netOmega)>5?"#f5a623":"#ccc"],
             ["P&L NOW",`${unrealizedPnl>=0?"+":""}$${unrealizedPnl.toFixed(2)}`,pnlColor(unrealizedPnl)],
           ].map(([l,v,c])=>(
             <div key={l} style={{display:"flex",justifyContent:"space-between"}}>
@@ -1875,7 +2016,7 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
               {scenarioPanel}
               {greeksPanel}
               {ivTable}
-              {chartPanel(legs.some(l=>l.real)?"COMBINED PAYOFF":"PAYOFF DIAGRAM")}
+              {chartPanel(legs.some(l=>l.real)?"COMBINED PAYOFF":"PAYOFF DIAGRAM",true)}
             </>
           )}
       </div>
@@ -1884,6 +2025,192 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
   );
 }
 
+
+// ── OptionAnalysis — rule-based analysis for a selected chain row ─────────────
+function OptionAnalysis({row, chainData}) {
+  if(!row||!chainData) return null;
+
+  const {spot, iv_rank:ivRank, atm_iv:atmIV, dte} = chainData;
+  const {strike, iv, delta, theta, gamma, vega, bid, ask, mid, type, volume, OI} = row;
+
+  // ── Derived metrics ───────────────────────────────────────────────────────
+  const spread     = (ask||0) - (bid||0);
+  const spreadPct  = mid > 0.01 ? (spread/mid)*100 : null;
+  const moneyness  = spot > 0 ? ((type==="call"?spot-strike:strike-spot)/spot)*100 : 0;
+  const isITM      = type==="call" ? spot > strike : spot < strike;
+  const isATM      = Math.abs(moneyness) < 2;
+  const isOTM      = !isITM && !isATM;
+  const absDelta   = Math.abs(delta||0);
+  const omega      = (mid > 0.001 && delta != null)
+    ? Math.abs(delta) * (spot / mid) : null;
+
+  // ── Signal generation ─────────────────────────────────────────────────────
+  const signals = [];
+  const flags   = { vol:"neutral", liquidity:"neutral", timing:"neutral",
+                    structure:"neutral", overall:"neutral" };
+
+  // --- Vol environment ---
+  if(ivRank != null){
+    if(ivRank > 70){
+      signals.push({cat:"VOL",tone:"warn",
+        text:`IV Rank ${ivRank.toFixed(0)} is elevated (>70). Options are historically expensive. `
+           + `Favour selling premium: CSP, covered call, or IC. `
+           + `Buying here means paying above-average extrinsic value.`});
+      flags.vol = "sell";
+    } else if(ivRank < 30){
+      signals.push({cat:"VOL",tone:"good",
+        text:`IV Rank ${ivRank.toFixed(0)} is low (<30). Options are historically cheap. `
+           + `Buying premium here captures the vol discount — debit spreads or long options have better risk/reward than usual.`});
+      flags.vol = "buy";
+    } else {
+      signals.push({cat:"VOL",tone:"neutral",
+        text:`IV Rank ${ivRank.toFixed(0)} is mid-range (30–70). No strong vol edge either way. `
+           + `Strategy choice should be driven by directional conviction and DTE rather than vol.`});
+    }
+  }
+
+  // --- Liquidity ---
+  if(spreadPct != null){
+    if(spreadPct > 15){
+      signals.push({cat:"LIQUIDITY",tone:"warn",
+        text:`Bid/ask spread is ${spreadPct.toFixed(0)}% of mid ($${spread.toFixed(2)}). `
+           + `Wide spread — slippage will erode edge on entry and exit. `
+           + `Consider a closer-to-ATM strike or a nearer expiry with tighter markets.`});
+      flags.liquidity = "warn";
+    } else if(spreadPct > 5){
+      signals.push({cat:"LIQUIDITY",tone:"neutral",
+        text:`Spread is ${spreadPct.toFixed(0)}% of mid ($${spread.toFixed(2)}). Acceptable but not tight. Use limit orders at mid.`});
+    } else {
+      signals.push({cat:"LIQUIDITY",tone:"good",
+        text:`Spread is tight at ${spreadPct.toFixed(1)}% of mid. Good liquidity — fills near mid are realistic.`});
+      flags.liquidity = "good";
+    }
+  }
+  if(OI != null && OI < 100){
+    signals.push({cat:"LIQUIDITY",tone:"warn",
+      text:`Open interest is only ${OI}. Very thin — large position may move the market and make exit difficult.`});
+    flags.liquidity = "warn";
+  }
+
+  // --- Delta / moneyness ---
+  if(isOTM && absDelta < 0.15){
+    signals.push({cat:"STRUCTURE",tone:"warn",
+      text:`Delta ${(delta||0).toFixed(2)} — deep OTM. `
+         + `Low probability of expiring ITM. High leverage (Ω ${omega?omega.toFixed(1)+"×":"N/A"}) `
+         + `but requires a large move. Suited for lottery-style speculation, not core positioning.`});
+    flags.structure = "spec";
+  } else if(isATM){
+    signals.push({cat:"STRUCTURE",tone:"neutral",
+      text:`ATM option (Δ ${(delta||0).toFixed(2)}). Maximum extrinsic value and gamma exposure. `
+         + `Highest sensitivity to both price movement and IV change.`
+         + (omega ? ` Elasticity ${omega.toFixed(1)}× — a 1% move in ${chainData.ticker||"the underlying"} changes this option ~${omega.toFixed(1)}%.` : "")});
+  } else if(absDelta > 0.6){
+    signals.push({cat:"STRUCTURE",tone:"neutral",
+      text:`Deep ITM (Δ ${(delta||0).toFixed(2)}). Behaves more like the underlying. `
+         + `Low extrinsic value reduces theta drag but also limits leverage. `
+         + (omega ? `Elasticity ${omega.toFixed(1)}× — relatively low leverage vs OTM options.` : "")});
+  } else {
+    signals.push({cat:"STRUCTURE",tone:"good",
+      text:`Moderate delta (${(delta||0).toFixed(2)}) — balanced between directional exposure and cost. `
+         + (omega ? `Elasticity ${omega.toFixed(1)}× means a 1% underlying move → ~${omega.toFixed(1)}% option move.` : "")});
+  }
+
+  // --- Theta / DTE ---
+  if(theta != null && mid > 0.01){
+    const thetaPct = Math.abs(theta)/mid*100;
+    if(dte != null && dte < 21){
+      signals.push({cat:"TIMING",tone:"warn",
+        text:`${dte}d to expiry — gamma and theta both accelerate sharply in the final 3 weeks. `
+           + `Theta decay is ${thetaPct.toFixed(1)}%/day of premium. `
+           + `Long options lose value rapidly; short options benefit but face gap risk.`});
+      flags.timing = "warn";
+    } else if(dte != null && dte <= 45){
+      signals.push({cat:"TIMING",tone:"good",
+        text:`${dte}d DTE is the sweet spot for credit strategies (30–45d = maximum theta/vega ratio). `
+           + `Theta: ${thetaPct.toFixed(1)}%/day of premium.`});
+      flags.timing = "good";
+    } else if(dte != null){
+      signals.push({cat:"TIMING",tone:"neutral",
+        text:`${dte}d to expiry — longer dated, lower theta burn (${thetaPct.toFixed(1)}%/day). `
+           + `More time for thesis to play out. IV changes (vega) dominate over theta at this duration.`});
+    }
+  }
+
+  // --- Overall verdict ---
+  const buyScore  = (flags.vol==="buy"?1:0)  + (flags.liquidity==="good"?0.5:0) + (flags.timing==="good"?0.5:0);
+  const sellScore = (flags.vol==="sell"?1:0) + (flags.timing==="good"?0.5:0);
+  const warnCount = Object.values(flags).filter(v=>v==="warn").length;
+
+  let verdict, verdictColor, verdictText;
+  if(warnCount >= 2){
+    verdict="CAUTION"; verdictColor="#f5a623";
+    verdictText="Multiple risk factors present. Review liquidity and vol environment before trading.";
+  } else if(flags.vol==="buy" && flags.liquidity!=="warn"){
+    verdict="FAVOURABLE TO BUY"; verdictColor="#00e5a0";
+    verdictText=`Low IV rank with good liquidity favours premium buyers. ${isOTM?"OTM options are cheap on a historical basis.":""}`;
+  } else if(flags.vol==="sell" && flags.liquidity!=="warn" && dte!=null&&dte>=21&&dte<=60){
+    verdict="FAVOURABLE TO SELL"; verdictColor="#4da8ff";
+    verdictText="Elevated IV + suitable DTE = positive expected value for premium sellers.";
+  } else {
+    verdict="NEUTRAL"; verdictColor="#888";
+    verdictText="No strong directional edge from vol or timing. Trade on conviction.";
+  }
+
+  const toneStyle = t => ({
+    good:"#00e5a0", warn:"#f5a623", neutral:"#888"
+  }[t]||"#888");
+
+  return (
+    <div style={{marginTop:6,padding:"10px 12px",
+      border:"1px solid var(--border)",background:"var(--bg1)"}}>
+      {/* Header */}
+      <div style={{display:"flex",alignItems:"baseline",gap:10,marginBottom:8}}>
+        <span style={{fontSize:9,color:"#777",letterSpacing:"0.1em"}}>OPTION ANALYSIS</span>
+        <span style={{fontSize:9,color:"#555"}}>
+          {chainData.ticker} {type?.toUpperCase()} ${strike} · {row.expiry||`${dte}d`}
+        </span>
+        <span style={{marginLeft:"auto",fontSize:10,fontWeight:700,color:verdictColor,
+          border:`1px solid ${verdictColor}44`,padding:"1px 8px",letterSpacing:"0.05em"}}>
+          {verdict}
+        </span>
+      </div>
+      <p style={{fontSize:9,color:"#aaa",margin:"0 0 8px",lineHeight:1.5}}>
+        {verdictText}
+      </p>
+      {/* Signal bullets */}
+      <div style={{display:"flex",flexDirection:"column",gap:6}}>
+        {signals.map((s,i)=>(
+          <div key={i} style={{display:"flex",gap:8,alignItems:"flex-start"}}>
+            <span style={{fontSize:8,color:toneStyle(s.tone),
+              fontFamily:"var(--mono)",letterSpacing:"0.08em",
+              flexShrink:0,marginTop:1,width:70}}>{s.cat}</span>
+            <span style={{fontSize:9,color:"#888",lineHeight:1.5}}>{s.text}</span>
+          </div>
+        ))}
+      </div>
+      {/* Key metrics footer */}
+      <div style={{display:"flex",gap:14,marginTop:8,paddingTop:6,
+        borderTop:"1px solid var(--border)",flexWrap:"wrap"}}>
+        {[
+          ["Ω ELAST", omega?`${omega.toFixed(1)}×`:"—", "#f5a623"],
+          ["Δ",       (delta||0).toFixed(3), absDelta>0.5?"#00e5a0":"#ccc"],
+          ["Θ/day",   theta?`$${Math.abs(theta*100).toFixed(2)}`:"—",
+                      "#ff4d6d"],
+          ["IV",      iv?`${(iv*100).toFixed(1)}%`:"—", "#4da8ff"],
+          ["SPREAD",  spreadPct?`${spreadPct.toFixed(1)}%`:"—",
+                      spreadPct>10?"#f5a623":"#888"],
+          ["OI",      OI?OI.toLocaleString():"—",
+                      OI<100?"#f5a623":"#888"],
+        ].map(([l,v,c])=>(
+          <div key={l} style={{display:"flex",flexDirection:"column",alignItems:"center"}}>
+            <span style={{fontSize:8,color:"#555",letterSpacing:"0.06em"}}>{l}</span>
+            <span style={{fontSize:10,fontWeight:700,color:c}}>{v}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // ── Sidebar ────────────────────────────────────────────────────────────────────
 
@@ -2388,6 +2715,17 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,setLiveSpots,portData,
   },[]);
 
   const activeTab = tabs.find(t=>t.id===activeTabId)||tabs[0];
+  const [selectedRow, setSelectedRow]   = useState(null);
+  const [selectedKey, setSelectedKey]   = useState(null);   // for ChainPositions highlight
+  // Reset selection when ticker changes
+  const prevTickerRef = React.useRef(null);
+  React.useEffect(()=>{
+    if(activeTab?.ticker !== prevTickerRef.current){
+      prevTickerRef.current = activeTab?.ticker;
+      setSelectedRow(null);
+      setSelectedKey(null);
+    }
+  },[activeTab?.ticker]);
 
   // Notify parent of active ticker for right pane sync
   useEffect(()=>{
@@ -2691,12 +3029,18 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,setLiveSpots,portData,
                   spot={activeTab.chainData.spot}
                   activeType={activeTab.activeType}
                   limit={settings?.chainRows||20}
+                  selectedStrike={selectedRow?.strike}
+                  onSelectRow={row=>{
+                    setSelectedRow(row);
+                    setSelectedKey(null);  // deselect position if any
+                  }}
                   onRowClick={row=>{
+                    setSelectedRow(row);
+                    setSelectedKey(null);
                     const leg={id:1,type:row.type,dir:"long",strike:row.strike,
                       iv:row.iv||0.25,qty:1,dte:activeTab.chainData.dte||30,
                       expiry:activeTab.expiry||"",entry:row.mid||row.ask||0};
                     if(onOpenRight) onOpenRight(activeTab.ticker,[leg]);
-                    // Note: openRight after state settles handled by openInRight
                   }}/>
                 {/* Positions for this ticker */}
                 {(()=>{
@@ -2726,6 +3070,11 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,setLiveSpots,portData,
                         <ChainPositions
                           positions={positions}
                           liveSpots={liveSpots}
+                          selectedKey={selectedKey}
+                          onSelectRow={(row, key)=>{
+                            setSelectedRow(row);
+                            setSelectedKey(key);
+                          }}
                           onAddToBuilder={row=>{
                             const leg={
                               id:Date.now(), real:true,
@@ -2748,6 +3097,11 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,setLiveSpots,portData,
                 <IVChart
                   ticker={activeTab.ticker}
                   atmIV={activeTab.chainData?.atm_iv||null}/>
+
+                {/* Option analysis — shown when a row is selected */}
+                <OptionAnalysis
+                  row={selectedRow}
+                  chainData={activeTab.chainData}/>
 
               </div>
             )}
@@ -2786,6 +3140,17 @@ function AnalysisPane({tabs, activeTabId, liveSpots,
   // All chain data comes from tabsA (left pane), preventing double-fetches
   // and the yfinance race condition.
   const activeTab = tabs.find(t=>t.id===activeTabId)||tabs[0];
+  const [selectedRow, setSelectedRow]   = useState(null);
+  const [selectedKey, setSelectedKey]   = useState(null);   // for ChainPositions highlight
+  // Reset selection when ticker changes
+  const prevTickerRef = React.useRef(null);
+  React.useEffect(()=>{
+    if(activeTab?.ticker !== prevTickerRef.current){
+      prevTickerRef.current = activeTab?.ticker;
+      setSelectedRow(null);
+      setSelectedKey(null);
+    }
+  },[activeTab?.ticker]);
   const chainData = activeTab?.chainData;
   const livePrice = activeTab?.livePrice || chainData?.spot;
   const src       = chainData?.source;

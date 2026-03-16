@@ -160,30 +160,46 @@ def fetch_chain(ticker: str, expiry: Optional[str] = None, r: float = 0.053) -> 
 
 def fetch_iv_history(ticker: str, days: int = 90):
     """Return daily vol series for charting:
-      hv20  — 20-day rolling realised vol (annualised)
-      hv30  — 30-day rolling realised vol (annualised)
-      ivrank — rolling HV percentile rank vs trailing 252d (proxy IV Rank)
-      close  — closing price (for secondary axis context)
+      hv20    — 20-day rolling realised vol (annualised)
+      hv30    — 30-day rolling realised vol (annualised)
+      ivrank  — rolling HV percentile rank vs trailing 252d (proxy IV Rank)
+      close   — closing price (for secondary axis context)
+      omega   — historical ATM elasticity proxy: 0.5 * (S / ATM_price_approx)
+                ATM_price_approx = S * hv20 * sqrt(30/365) * 0.3989 (Black-Scholes ATM approx)
+                This equals S / (2 * S * hv20 * sqrt(T)) = 1 / (2 * hv20 * sqrt(T))
+                Interpretation: a 1% move in the stock → omega% move in a 30d ATM option
     """
     import pandas as pd
+    T30 = np.sqrt(30 / 365)   # 30-day time factor
     try:
         tk   = yf.Ticker(ticker)
-        hist = tk.history(period="18mo")   # need 252d lookback for rank
+        hist = tk.history(period="18mo")
         if hist.empty:
             return pd.DataFrame()
-        lr    = np.log(hist["Close"] / hist["Close"].shift(1)).dropna()
+        S     = hist["Close"]
+        lr    = np.log(S / S.shift(1)).dropna()
         hv20  = lr.rolling(20).std() * np.sqrt(252)
         hv30  = lr.rolling(30).std() * np.sqrt(252)
-        # Rolling HV rank: percentile of hv20 vs trailing 252 trading days
+
+        # Rolling HV rank
         def rolling_rank(s, window=252):
             return s.rolling(window).apply(
                 lambda x: float(np.sum(x <= x[-1])) / len(x), raw=True)
         hv_rank = rolling_rank(hv20)
+
+        # ATM elasticity proxy using 30d ATM BS approximation
+        # ATM call price ≈ S * sigma * sqrt(T) * 0.3989  (normal approx)
+        # Omega = delta * S / V ≈ 0.5 * S / (S * sigma * sqrt(T) * 0.3989)
+        #       = 0.5 / (sigma * sqrt(T) * 0.3989)  — purely vol-dependent
+        atm_approx_price = S * hv20 * T30 * 0.3989
+        omega = 0.5 * S / atm_approx_price   # = 0.5 / (hv20 * T30 * 0.3989)
+
         df = pd.DataFrame({
             "hv20":   hv20,
             "hv30":   hv30,
             "ivrank": hv_rank,
-            "close":  hist["Close"],
+            "close":  S,
+            "omega":  omega,
         }).dropna()
         df = df.tail(days)
         df.index = df.index.strftime("%Y-%m-%d")

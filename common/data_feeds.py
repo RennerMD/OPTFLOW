@@ -13,15 +13,26 @@ from common.options_chain import fetch_chain as _yf_chain, fetch_iv_history, gen
 
 
 def _is_market_hours() -> bool:
-    """True if NYSE regular session is currently open."""
-    from datetime import datetime, time
-    import zoneinfo
-    et   = zoneinfo.ZoneInfo("America/New_York")
-    now  = datetime.now(et)
-    if now.weekday() >= 5:          # Sat/Sun
+    """True if NYSE regular session is currently open (9:30–16:00 ET, Mon–Fri).
+    Uses zoneinfo (Python 3.9+) with pytz fallback.
+    """
+    from datetime import datetime, time as dtime
+    try:
+        import zoneinfo
+        tz = zoneinfo.ZoneInfo("America/New_York")
+    except Exception:
+        try:
+            import pytz
+            tz = pytz.timezone("America/New_York")
+        except Exception:
+            # Last resort: assume UTC-4 (EDT) — good enough for this guard
+            from datetime import timezone, timedelta
+            tz = timezone(timedelta(hours=-4))
+    now = datetime.now(tz)
+    if now.weekday() >= 5:              # Saturday / Sunday
         return False
     t = now.time()
-    return time(9, 30) <= t <= time(16, 0)
+    return dtime(9, 30) <= t <= dtime(16, 0)
 
 POLYGON_BASE = "https://api.polygon.io"
 
@@ -174,7 +185,7 @@ async def fetch_spots_async(tickers: list) -> dict:
                     ah_pct = round((ah_chg/close)*100, 3) if close else 0
                     return {"price": price, "close": close,
                             "ah_change": ah_chg, "ah_pct": ah_pct,
-                            "is_ah": close>0 and abs(price-close)>0.01}
+                            "is_ah": (not _is_market_hours()) and close>0 and abs(price-close)>0.01}
 
                 out = {q["symbol"]: _enrich(q) for q in quotes}
                 if all(out.get(t.upper(), {}).get("price", 0) > 0 for t in tickers):

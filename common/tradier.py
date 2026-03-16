@@ -18,15 +18,26 @@ from common.options_chain import greeks, implied_vol, generate_signals, iv_rank,
 
 
 def _is_market_hours() -> bool:
-    """True if NYSE regular session is currently open."""
-    from datetime import datetime, time
-    import zoneinfo
-    et   = zoneinfo.ZoneInfo("America/New_York")
-    now  = datetime.now(et)
-    if now.weekday() >= 5:          # Sat/Sun
+    """True if NYSE regular session is currently open (9:30–16:00 ET, Mon–Fri).
+    Uses zoneinfo (Python 3.9+) with pytz fallback.
+    """
+    from datetime import datetime, time as dtime
+    try:
+        import zoneinfo
+        tz = zoneinfo.ZoneInfo("America/New_York")
+    except Exception:
+        try:
+            import pytz
+            tz = pytz.timezone("America/New_York")
+        except Exception:
+            # Last resort: assume UTC-4 (EDT) — good enough for this guard
+            from datetime import timezone, timedelta
+            tz = timezone(timedelta(hours=-4))
+    now = datetime.now(tz)
+    if now.weekday() >= 5:              # Saturday / Sunday
         return False
     t = now.time()
-    return time(9, 30) <= t <= time(16, 0)
+    return dtime(9, 30) <= t <= dtime(16, 0)
 
 BASE_LIVE    = "https://api.tradier.com"
 BASE_SANDBOX = "https://sandbox.tradier.com"
