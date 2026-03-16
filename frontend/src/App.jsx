@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import React from "react";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 
 const API = "http://127.0.0.1:8000/api";
 const WS  = "ws://127.0.0.1:8000/ws";
@@ -138,34 +138,98 @@ function IVChart({ticker}) {
 }
 
 // ── PortfolioPanel ─────────────────────────────────────────────────────────────
-function PortfolioPanel({data,onTickerOpen}) {
+function PortfolioPanel({data, onTickerOpen, liveSpots={}}) {
+  const [sortKey,  setSortKey]  = useState("ticker");
+  const [sortAsc,  setSortAsc]  = useState(true);
+  const [filter,   setFilter]   = useState("");
+  const [expanded, setExpanded] = useState(new Set());
+
   if (!data) return (
     <div className="panel-empty">
       No portfolio loaded<br/>
       <span style={{fontSize:10,color:"#2a2a2a",marginTop:8,display:"block"}}>
-        Import via sidebar → PORTFOLIO IMPORT
+        Import via sidebar → Settings → Portfolio Import
       </span>
     </div>
   );
+
   const {positions=[],alerts=[],expirations=[],summary={},
          account_value:acctValue=0,cost_basis:costBasis=0} = data;
   const {total_pnl:totalPnl=0,total_pnl_pct:totalPct=0,
          net_delta:netDelta=0,net_theta:netTheta=0,net_vega:netVega=0} = summary;
+
+  // ── Sort + filter ─────────────────────────────────────────────────────────
+  const SORT_KEYS = {
+    ticker:"ticker", type:"type", direction:"direction",
+    strike:"strike", expiry:"expiry", dte:"dte",
+    pnl:"pnl", pnl_pct:"pnl_pct", delta:"delta", theta:"theta", iv:"iv",
+  };
+  const toggleSort = key => {
+    if(sortKey===key) setSortAsc(a=>!a);
+    else { setSortKey(key); setSortAsc(true); }
+  };
+  const SortTh = ({k,label,style={}}) => (
+    <th onClick={()=>toggleSort(k)}
+      style={{cursor:"pointer",userSelect:"none",whiteSpace:"nowrap",...style}}>
+      {label}
+      <span style={{fontSize:8,color:sortKey===k?"var(--green)":"#333",marginLeft:3}}>
+        {sortKey===k?(sortAsc?"▲":"▼"):"⇅"}
+      </span>
+    </th>
+  );
+
+  const q = filter.trim().toLowerCase();
+  const filtered = positions.filter(p=>
+    !q||p.ticker?.toLowerCase().includes(q)||
+       p.type?.toLowerCase().includes(q)||
+       p.direction?.toLowerCase().includes(q)
+  );
+  const sorted = [...filtered].sort((a,b)=>{
+    const av=a[sortKey]??"", bv=b[sortKey]??"";
+    const cmp = typeof av==="number"?av-bv:String(av).localeCompare(String(bv));
+    return sortAsc?cmp:-cmp;
+  });
+
+  const toggleExpand = (i,e) => {
+    e.stopPropagation();
+    setExpanded(prev=>{
+      const next=new Set(prev);
+      next.has(i)?next.delete(i):next.add(i);
+      return next;
+    });
+  };
+
+  // Build a single-leg array for IVScenarioTable
+  const posToScenarioLeg = p => [{
+    id:0, real:true, type:p.type||"call", dir:p.direction||"long",
+    strike:parseFloat(p.strike)||0, iv:parseFloat(p.iv)||0.25,
+    qty:parseInt(p.contracts)||1,  dte:parseInt(p.dte)||30,
+    expiry:p.expiry||"",           entry:parseFloat(p.entry_price)||0,
+    ticker:p.ticker, closing:false,
+  }];
+
   return (
-    <div style={{display:"flex",flexDirection:"column",gap:12}}>
+    <div style={{display:"flex",flexDirection:"column",gap:12,padding:"2px 0"}}>
+
+      {/* ── Summary bar ── */}
       <div className="acct-value-bar">
         <div>
-          <div style={{fontSize:9,color:"#555",letterSpacing:"0.15em",marginBottom:4}}>ACCOUNT VALUE (OPTIONS)</div>
-          <div style={{fontSize:28,fontWeight:700,color:"#fff",lineHeight:1}}>
+          <div style={{fontSize:9,color:"#555",letterSpacing:"0.15em",marginBottom:4}}>
+            PORTFOLIO VALUE (OPTIONS)
+          </div>
+          <div style={{fontSize:26,fontWeight:700,color:"#fff",lineHeight:1}}>
             ${Math.abs(acctValue).toLocaleString("en-US",{minimumFractionDigits:2})}
           </div>
           <div style={{fontSize:11,marginTop:5,color:pnlColor(totalPnl)}}>
-            {totalPnl>=0?"+":""}{fmtUSD(totalPnl)} ({totalPnl>=0?"+":""}{fmt(totalPct,1)}%)
+            {totalPnl>=0?"+":""}{fmtUSD(totalPnl)}&nbsp;
+            ({totalPnl>=0?"+":""}{fmt(totalPct,1)}%)
           </div>
         </div>
         <div style={{marginLeft:"auto",display:"flex",gap:20}}>
-          {[["POS",positions.length,"#fff"],["≤45d",expirations.length,expirations.length>0?"#f5a623":"#555"],
-            ["⚠",alerts.length,alerts.length>0?"#ff4d6d":"#555"]].map(([l,v,c])=>(
+          {[["POS",positions.length,"#fff"],
+            ["≤45d",expirations.length,expirations.length>0?"#f5a623":"#555"],
+            ["⚠",alerts.length,alerts.length>0?"#ff4d6d":"#555"]
+          ].map(([l,v,c])=>(
             <div key={l} style={{textAlign:"center"}}>
               <div style={{fontSize:9,color:"#444",letterSpacing:"0.1em",marginBottom:3}}>{l}</div>
               <div style={{fontSize:18,fontWeight:700,color:c}}>{v}</div>
@@ -173,11 +237,13 @@ function PortfolioPanel({data,onTickerOpen}) {
           ))}
         </div>
       </div>
+
+      {/* ── Net Greeks bar ── */}
       <div className="greeks-bar">
         {[["NET Δ",fmt(netDelta,3),netDelta>0?"#00e5a0":netDelta<0?"#ff4d6d":"#555","Directional exposure"],
           ["NET Θ",fmt(netTheta,2),netTheta<0?"#ff4d6d":"#00e5a0","Daily decay"],
           ["NET V",fmt(netVega,2),netVega>0?"#4da8ff":"#f5a623","Vol sensitivity"],
-          ["BASIS",`$${Math.abs(costBasis).toFixed(0)}`,"#fff","Capital deployed"]
+          ["BASIS",`$${Math.abs(costBasis).toFixed(0)}`,"#fff","Capital deployed"],
         ].map(([l,v,c,tip])=>(
           <div key={l} className="greek-stat" title={tip}>
             <span className="greek-stat-label">{l}</span>
@@ -185,6 +251,8 @@ function PortfolioPanel({data,onTickerOpen}) {
           </div>
         ))}
       </div>
+
+      {/* ── Alerts + Expirations ── */}
       {(alerts.length>0||expirations.length>0)&&(
         <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
           {alerts.length>0&&(
@@ -196,10 +264,14 @@ function PortfolioPanel({data,onTickerOpen}) {
                   <span style={{color:"#ff4d6d"}}>⚠</span>
                   <div style={{flex:1}}>
                     <b style={{color:"#fff"}}>{a.ticker}</b>
-                    <span style={{color:"#555",marginLeft:6,fontSize:10}}>{a.type} {fmt(a.strike)}</span>
+                    <span style={{color:"#555",marginLeft:6,fontSize:10}}>
+                      {a.type} {fmt(a.strike)}
+                    </span>
                     <div style={{fontSize:10,color:"#f5a623",marginTop:1}}>{a.message}</div>
                   </div>
-                  {a.dte!=null&&<span className="dte-badge" style={{fontSize:9}}>{a.dte}d</span>}
+                  {a.dte!=null&&(
+                    <span className="dte-badge" style={{fontSize:9}}>{a.dte}d</span>
+                  )}
                 </div>
               ))}
             </div>
@@ -208,15 +280,17 @@ function PortfolioPanel({data,onTickerOpen}) {
             <div style={{flex:1,minWidth:160}}>
               <div className="section-label" style={{marginBottom:6}}>EXPIRATIONS</div>
               {expirations.map((e,i)=>(
-                <div key={i} style={{display:"flex",alignItems:"center",gap:8,marginBottom:3,
-                  fontSize:11,padding:"3px 8px",border:"1px solid #1e1e1e",cursor:"pointer"}}
-                  onClick={()=>onTickerOpen&&onTickerOpen(e.ticker)}>
+                <div key={i} onClick={()=>onTickerOpen&&onTickerOpen(e.ticker)}
+                  style={{display:"flex",alignItems:"center",gap:8,marginBottom:3,
+                    fontSize:11,padding:"3px 8px",border:"1px solid #1e1e1e",cursor:"pointer"}}>
                   <b style={{color:"#fff",width:44}}>{e.ticker}</b>
                   <span style={{color:"#555",fontSize:10}}>{e.type} {fmt(e.strike)}</span>
                   <span style={{marginLeft:"auto"}}>
                     <span className="dte-badge" style={{fontSize:9,
                       borderColor:e.dte<=21?"rgba(255,77,109,0.4)":e.dte<=45?"rgba(245,166,35,0.4)":"#282828",
-                      color:e.dte<=21?"#ff4d6d":e.dte<=45?"#f5a623":"#555"}}>{e.dte}d</span>
+                      color:e.dte<=21?"#ff4d6d":e.dte<=45?"#f5a623":"#555"}}>
+                      {e.dte}d
+                    </span>
                   </span>
                 </div>
               ))}
@@ -224,42 +298,132 @@ function PortfolioPanel({data,onTickerOpen}) {
           )}
         </div>
       )}
+
+      {/* ── Filter bar ── */}
+      <div style={{display:"flex",alignItems:"center",gap:8}}>
+        <input
+          value={filter}
+          onChange={e=>setFilter(e.target.value)}
+          placeholder="Filter ticker / type / direction…"
+          style={{flex:1,background:"var(--bg2)",border:"1px solid var(--border2)",
+            color:"#ccc",fontFamily:"var(--mono)",fontSize:10,padding:"4px 10px",
+            outline:"none"}}/>
+        {filter&&(
+          <button onClick={()=>setFilter("")}
+            style={{background:"none",border:"none",color:"#555",cursor:"pointer",
+              fontFamily:"var(--mono)",fontSize:11}}>✕</button>
+        )}
+        <span style={{fontSize:9,color:"#444",flexShrink:0}}>
+          {sorted.length}/{positions.length}
+        </span>
+      </div>
+
+      {/* ── Positions table ── */}
       <div style={{overflowX:"auto"}}>
         <table className="chain-table">
           <thead>
-            <tr>{["TICKER","SIDE","STRIKE","EXPIRY","DTE","QTY","ENTRY","MID","P&L","P&L%","Δ","Θ","TARGET","STOP","IV","STATUS"]
-              .map(c=><th key={c}>{c}</th>)}</tr>
+            <tr>
+              <th style={{width:24}}/>
+              <SortTh k="ticker"    label="TICKER"/>
+              <SortTh k="direction" label="SIDE"/>
+              <SortTh k="strike"    label="STRIKE"/>
+              <SortTh k="expiry"    label="EXPIRY"/>
+              <SortTh k="dte"       label="DTE"/>
+              <th>QTY</th>
+              <th>ENTRY</th>
+              <th>MID</th>
+              <SortTh k="pnl"     label="P&L"/>
+              <SortTh k="pnl_pct" label="P&L%"/>
+              <SortTh k="delta"   label="Δ"/>
+              <SortTh k="theta"   label="Θ"/>
+              <SortTh k="iv"      label="IV"/>
+              <th>STATUS</th>
+              <th>CHAIN</th>
+            </tr>
           </thead>
           <tbody>
-            {positions.length===0
-              ? <tr><td colSpan={16} style={{textAlign:"center",padding:16,color:"#2a2a2a"}}>No positions</td></tr>
-              : positions.map((p,i)=>{
-                  const pct=p.pnl_pct||0, urg=p.dte<=21?"#ff4d6d":p.dte<=45?"#f5a623":null;
+            {sorted.length===0
+              ? <tr><td colSpan={16} style={{textAlign:"center",padding:16,color:"#2a2a2a"}}>
+                  {filter?"No matches":"No positions"}
+                </td></tr>
+              : sorted.map((p,i)=>{
+                  const pct=p.pnl_pct||0;
+                  const urg=p.dte<=21?"#ff4d6d":p.dte<=45?"#f5a623":null;
+                  const isOpen=expanded.has(i);
+                  const spot = liveSpots[p.ticker] || p.mid || 0;
                   return (
-                    <tr key={i} style={{cursor:"pointer"}} onClick={()=>onTickerOpen&&onTickerOpen(p.ticker)}>
-                      <td className="strike-col">{p.ticker}</td>
-                      <td style={{color:p.direction==="long"?"#00e5a0":"#ff4d6d",fontSize:10}}>
-                        {p.direction?.toUpperCase()} {p.type}</td>
-                      <td>{fmt(p.strike)}</td>
-                      <td style={{fontSize:10,color:"#555"}}>{p.expiry}</td>
-                      <td><span className="dte-badge" style={{fontSize:9,
-                        borderColor:urg?"rgba(255,77,109,0.35)":"#282828",color:urg||"#555"}}>{p.dte}d</span></td>
-                      <td>{p.contracts}</td>
-                      <td style={{color:"#555"}}>${fmt(p.entry_price,2)}</td>
-                      <td>${fmt(p.mid,2)}</td>
-                      <td style={{color:pnlColor(p.pnl),fontWeight:600}}>{p.pnl>=0?"+":""}{fmtUSD(p.pnl)}</td>
-                      <td style={{color:pnlColor(pct)}}>{pct>=0?"+":""}{fmt(pct,1)}%</td>
-                      <td>{fmt(p.delta,3)}</td>
-                      <td style={{color:p.theta<0?"#ff4d6d":"#00e5a0"}}>{fmt(p.theta,2)}</td>
-                      <td style={{color:"#00e5a0",fontSize:10}}>{p.target_price?`$${fmt(p.target_price,2)}`:"—"}</td>
-                      <td style={{color:"#ff4d6d",fontSize:10}}>{p.stop_price?`$${fmt(p.stop_price,2)}`:"—"}</td>
-                      <td>{fmtPct(p.iv)}</td>
-                      <td>{p.alerts?.length
-                        ? <span style={{color:"#f5a623",fontSize:10,fontWeight:700}}>⚠ ACT</span>
-                        : <span style={{color:"#2a2a2a",fontSize:10}}>HOLD</span>}</td>
-                    </tr>
+                    <React.Fragment key={i}>
+                      {/* Main row */}
+                      <tr style={{cursor:"pointer",
+                        background:isOpen?"rgba(0,229,160,0.03)":"none"}}
+                        onClick={e=>toggleExpand(i,e)}>
+                        {/* Expand toggle */}
+                        <td style={{textAlign:"center",color:isOpen?"var(--green)":"#333",
+                          fontSize:10,paddingLeft:8}}>
+                          {isOpen?"▾":"▸"}
+                        </td>
+                        <td className="strike-col" style={{fontWeight:700}}>{p.ticker}</td>
+                        <td style={{color:p.direction==="long"?"#00e5a0":"#ff4d6d",fontSize:10}}>
+                          {p.direction?.toUpperCase()} {p.type}
+                        </td>
+                        <td>{fmt(p.strike)}</td>
+                        <td style={{fontSize:10,color:"#555"}}>{p.expiry}</td>
+                        <td>
+                          <span className="dte-badge" style={{fontSize:9,
+                            borderColor:urg?"rgba(255,77,109,0.35)":"#282828",
+                            color:urg||"#555"}}>
+                            {p.dte}d
+                          </span>
+                        </td>
+                        <td>{p.contracts}</td>
+                        <td style={{color:"#555"}}>${fmt(p.entry_price,2)}</td>
+                        <td>${fmt(p.mid,2)}</td>
+                        <td style={{color:pnlColor(p.pnl),fontWeight:600}}>
+                          {p.pnl>=0?"+":""}{fmtUSD(p.pnl)}
+                        </td>
+                        <td style={{color:pnlColor(pct)}}>
+                          {pct>=0?"+":""}{fmt(pct,1)}%
+                        </td>
+                        <td>{fmt(p.delta,3)}</td>
+                        <td style={{color:p.theta<0?"#ff4d6d":"#00e5a0"}}>{fmt(p.theta,2)}</td>
+                        <td>{fmtPct(p.iv)}</td>
+                        <td>
+                          {p.alerts?.length
+                            ? <span style={{color:"#f5a623",fontSize:10,fontWeight:700}}>⚠ ACT</span>
+                            : <span style={{color:"#2a2a2a",fontSize:10}}>HOLD</span>}
+                        </td>
+                        <td onClick={e=>{e.stopPropagation();onTickerOpen&&onTickerOpen(p.ticker);}}
+                          style={{color:"#555",fontSize:10,cursor:"pointer",padding:"0 8px"}}
+                          onMouseEnter={e=>e.currentTarget.style.color="var(--green)"}
+                          onMouseLeave={e=>e.currentTarget.style.color="#555"}>
+                          ↗
+                        </td>
+                      </tr>
+
+                      {/* Inline IV scenario table */}
+                      {isOpen&&(
+                        <tr>
+                          <td colSpan={16} style={{padding:"8px 12px",
+                            background:"rgba(0,0,0,0.3)",
+                            borderBottom:"2px solid rgba(0,229,160,0.15)"}}>
+                            <div style={{fontSize:9,color:"#555",marginBottom:6,
+                              letterSpacing:"0.08em"}}>
+                              IV SCENARIO — {p.ticker} {p.direction?.toUpperCase()} {p.type}
+                              &nbsp;${fmt(p.strike)} exp {p.expiry}
+                              &nbsp;·&nbsp;spot ${fmt(spot)}
+                            </div>
+                            <IVScenarioTable
+                              legs={posToScenarioLeg(p)}
+                              spot0={spot} spot={spot} r={0.04}
+                              analysisDate={new Date().toISOString().slice(0,10)}
+                              mode="pnl"/>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   );
-                })}
+                })
+            }
           </tbody>
         </table>
       </div>
@@ -710,7 +874,7 @@ function LegRow({leg, idx, editable, onRemove, onUpdate, pnl=0,
 }
 
 // ── PayoffChart — React.memo prevents remount on unrelated state changes ────────
-const PayoffChart = React.memo(function PayoffChart({data,legs,chartMode,lo,hi,yDom,r}){
+const PayoffChart = React.memo(function PayoffChart({data,legs,chartMode,lo,hi,yDom,r,currentSpot=null}){
   return (
     <ResponsiveContainer width="100%" height={190}>
       <LineChart data={data} margin={{top:4,right:8,bottom:4,left:48}}>
@@ -723,8 +887,14 @@ const PayoffChart = React.memo(function PayoffChart({data,legs,chartMode,lo,hi,y
         <Tooltip contentStyle={{background:"#111",border:"1px solid #232323",fontSize:10}}
           formatter={(v,n)=>[`${v>=0?"+":""}$${v.toFixed(2)}`,n]}
           labelFormatter={v=>`$${Number(v).toFixed(2)}`}/>
+        {/* Zero P&L line */}
         <Line type="monotone" dataKey={()=>0} stroke="#1e1e1e" strokeWidth={1}
           dot={false} legendType="none" tooltipType="none"/>
+        {/* Current spot reference line */}
+        {currentSpot&&<ReferenceLine x={parseFloat(currentSpot.toFixed(2))}
+          stroke="rgba(255,255,255,0.25)" strokeDasharray="3 3"
+          label={{value:`$${currentSpot.toFixed(0)}`,position:"top",
+                  fill:"#666",fontSize:9,fontFamily:"var(--mono)"}}/>}
         {chartMode==="simple"&&<>
           <Line type="monotone" dataKey="expiry" stroke="#00e5a0" strokeWidth={2} dot={false} name="At Expiry"/>
           <Line type="monotone" dataKey="pnl" stroke="#4da8ff" strokeWidth={1.5} dot={false} strokeDasharray="4 3" name="Now"/>
@@ -744,207 +914,393 @@ const PayoffChart = React.memo(function PayoffChart({data,legs,chartMode,lo,hi,y
 });
 
 // ── LabPanel ───────────────────────────────────────────────────────────────────
-function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[]}) {
-  const spot0    = chainData?.spot       || 100;
-  const dte0     = chainData?.dte        || 30;
-  const r        = chainData?.risk_free  || 0.04;
-  const chain    = chainData?.chain      || [];
+
+// ── IVScenarioTable ────────────────────────────────────────────────────────────
+// Price × IV heatmap. Each cell shows P&L or theoretical value for the full
+// position at that (underlying price, IV shift) combination on the selected date.
+
+const IV_STEPS   = [-20,-15,-10,-5,0,+5,+10,+15,+20];  // % IV shift
+const PRICE_ROWS = 9;  // rows above + below current spot
+
+function IVScenarioTable({legs, spot0, spot, r, analysisDate, mode}) {
+  // Generate price rows: ±20% around spot0 in equal steps
+  const pricePct = Array.from({length:PRICE_ROWS*2+1},(_,i)=>
+    Math.round((i-PRICE_ROWS)*(20/PRICE_ROWS)*10)/10);  // e.g. -20,-15.6...0...+20
+  const prices = pricePct.map(p=>spot0*(1+p/100));
+
+  if(!legs.length) return null;
+
+  // For each cell: compute aggregate P&L or value across all legs
+  const cellVal = (S, ivShiftPct) => {
+    let total=0;
+    legs.forEach(leg=>{
+      if(!leg.strike||!leg.iv) return;
+      const baseSign = leg.dir==="long"?1:-1;
+      const sign     = leg.closing?-baseSign:baseSign;
+      const iv       = Math.max(0.01,(leg.iv||0.25)+(ivShiftPct/100));
+      // Days remaining from analysisDate to leg expiry
+      let T = 0.001;
+      if(leg.expiry){
+        const expDate  = new Date(leg.expiry+"T00:00:00");
+        const anaDate  = new Date(analysisDate+"T00:00:00");
+        const days     = Math.max(0,(expDate-anaDate)/(1000*60*60*24));
+        T = Math.max(0.001, days/365);
+      } else {
+        T = Math.max(0.001,(leg.dte||30)/365);
+      }
+      const price = bsPrice(S, leg.strike, T, r, iv, leg.type);
+      if(mode==="pnl"){
+        total += sign*(price - leg.entry)*100*leg.qty;
+      } else {
+        total += price*100*leg.qty*(leg.dir==="long"?1:-1);
+      }
+    });
+    return total;
+  };
+
+  // Compute all values for color scaling
+  const allVals = prices.flatMap(S=>IV_STEPS.map(iv=>cellVal(S,iv)));
+  const maxAbs  = Math.max(1,...allVals.map(Math.abs));
+
+  const cellColor = v => {
+    const intensity = Math.min(1, Math.abs(v)/maxAbs);
+    if(mode==="pnl"){
+      return v>0
+        ? `rgba(0,229,160,${0.08+intensity*0.35})`
+        : `rgba(255,77,109,${0.08+intensity*0.35})`;
+    }
+    return `rgba(77,168,255,${0.05+intensity*0.3})`;
+  };
+
+  const fmt2 = v => {
+    const abs = Math.abs(v);
+    const s   = abs>=1000?`$${(abs/1000).toFixed(1)}k`:`$${abs.toFixed(0)}`;
+    return (mode==="pnl"?(v>=0?"+":"-"):"")+s;
+  };
+
+  return (
+    <div style={{overflowX:"auto"}}>
+      <table style={{width:"100%",borderCollapse:"collapse",fontSize:9,
+        fontFamily:"var(--mono)"}}>
+        <thead>
+          <tr>
+            <th style={{padding:"3px 6px",color:"#444",textAlign:"left",
+              borderBottom:"1px solid var(--border)",whiteSpace:"nowrap"}}>
+              {mode==="pnl"?"P&L":"VALUE"} / IV→
+            </th>
+            {IV_STEPS.map(iv=>(
+              <th key={iv} style={{padding:"3px 5px",color:iv===0?"#ccc":"#555",
+                textAlign:"center",borderBottom:"1px solid var(--border)",
+                background:iv===0?"rgba(255,255,255,0.03)":"none",
+                whiteSpace:"nowrap"}}>
+                {iv>=0?"+":""}{iv}%
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {prices.map((S,ri)=>{
+            const pct = pricePct[ri];
+            const isSpot = Math.abs(pct)<(20/PRICE_ROWS/2);
+            return (
+              <tr key={ri} style={{
+                background:isSpot?"rgba(255,255,255,0.03)":"none",
+                outline:isSpot?"1px solid rgba(255,255,255,0.06)":"none"}}>
+                <td style={{padding:"3px 6px",color:isSpot?"#ccc":pct>0?"#00e5a0":"#ff4d6d",
+                  whiteSpace:"nowrap",borderRight:"1px solid var(--border)",
+                  fontWeight:isSpot?700:400}}>
+                  ${S.toFixed(0)} {isSpot?"◀":pct>=0?`+${pct.toFixed(1)}%`:`${pct.toFixed(1)}%`}
+                </td>
+                {IV_STEPS.map(iv=>{
+                  const v = cellVal(S,iv);
+                  return (
+                    <td key={iv} style={{
+                      padding:"2px 4px",textAlign:"right",
+                      background:cellColor(v),
+                      color:mode==="pnl"?(v>=0?"#00e5a0":"#ff4d6d"):"#4da8ff",
+                      fontWeight:isSpot?700:400,
+                      border:"1px solid rgba(255,255,255,0.02)",
+                      whiteSpace:"nowrap"}}>
+                      {fmt2(v)}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liveSpots={}}) {
+  const spot0    = chainData?.spot      || 100;
+  const dte0     = chainData?.dte       || 30;
+  const r        = chainData?.risk_free || 0.04;
+  const chain    = chainData?.chain     || [];
   const expiries = chainExpiries.length ? chainExpiries : (chainData?.expiries||[]);
+  const ticker   = chainData?.ticker    || "";
 
-  // ── State ────────────────────────────────────────────────────────────────
-  const [labView,  setLabView]  = useState("theoretical");
-  const [chartMode,setChartMode]= useState("simple");
-  const [filterTicker, setFilterTicker] = useState(true);
+  // ── Views ────────────────────────────────────────────────────────────────
+  const [labView,    setLabView]   = useState("builder");
+  const [chartMode,  setChartMode] = useState("simple");
+  const [tableMode,  setTableMode] = useState("pnl");   // "pnl" | "value"
 
-  // Theoretical legs
-  const [legs, setLegs] = useState(()=>{
+  // ── Leg state ─────────────────────────────────────────────────────────────
+  const [legs,      setLegs]      = useState(()=>{
     if(seedLegs&&seedLegs.length) return seedLegs;
-    const atm = chain.filter(c=>c.type==="call")
+    const atm=chain.filter(c=>c.type==="call")
       .sort((a,b)=>Math.abs(a.strike-spot0)-Math.abs(b.strike-spot0))[0];
     return atm?[{id:1,type:"call",dir:"long",strike:atm.strike,iv:atm.iv||0.25,
-                  qty:1,dte:dte0,expiry:"",entry:atm.mid||atm.ask||0,real:false}]:[];
+                  qty:1,dte:dte0,expiry:chainData?.expiry||"",
+                  entry:atm.mid||atm.ask||0,real:false}]:[];
   });
   const [nextLegId, setNextLegId] = useState(10);
-  // Version counter replaces JSON.stringify in deps
-  const [legVer, setLegVer] = useState(0);
-  const bumpLegVer = () => setLegVer(v=>v+1);
+  const [legVer,    setLegVer]    = useState(0);
+  const bumpVer = useCallback(()=>setLegVer(v=>v+1),[]);
 
-  // Real legs added to combined view
-  const [combinedRealLegs, setCombinedRealLegs] = useState([]);
+  // ── Date slider ───────────────────────────────────────────────────────────
+  // Single calendar date that each leg uses to compute remaining T independently
+  const todayStr = useMemo(()=>new Date().toISOString().slice(0,10),[]);
+  const maxExpiry = useMemo(()=>{
+    const dates=[...legs,...(portData?.positions||[])]
+      .map(l=>l.expiry||"").filter(Boolean).sort();
+    return dates.length?dates[dates.length-1]:
+      // fallback: today + dte0 days
+      new Date(Date.now()+dte0*864e5).toISOString().slice(0,10);
+  },[legs,portData,dte0]);
+  const [analysisDate, setAnalysisDate] = useState(todayStr);
+  // Reset to today when chain changes
+  useEffect(()=>setAnalysisDate(todayStr),[dte0]);
 
-  // Scenario sliders
-  // spotAdj: % offset from spot0
-  // dteRemaining: absolute days remaining (integer, ≤ max leg DTE)
-  // ivShift: additive decimal shift on all IVs
-  const [spotAdj,       setSpotAdj]       = useState(0);
-  const maxDTE = useMemo(()=>Math.max(dte0, ...legs.map(l=>l.dte||0), ...combinedRealLegs.map(l=>l.dte||0)), [legs, combinedRealLegs, dte0]);
-  const [dteRemaining,  setDteRemaining]  = useState(()=>dte0);
-  const [ivShift,       setIvShift]       = useState(0);
+  // Per-leg T from analysisDate
+  const legT = useCallback(leg=>{
+    if(leg.expiry){
+      const days=Math.max(0,(new Date(leg.expiry+"T00:00:00")-new Date(analysisDate+"T00:00:00"))/(864e5));
+      return Math.max(0.001,days/365);
+    }
+    // Fallback: use leg.dte scaled from today ratio
+    const elapsed = (new Date(analysisDate)-new Date(todayStr))/(864e5);
+    return Math.max(0.001,((leg.dte||dte0)-elapsed)/365);
+  },[analysisDate,todayStr,dte0]);
 
-  const spot   = spot0*(1+spotAdj/100);
-  const ticker = chainData?.ticker||"";
-  const strikes = useMemo(()=>[...new Set(chain.map(c=>c.strike))].sort((a,b)=>a-b), [chain]);
+  // ── Spot + IV ─────────────────────────────────────────────────────────────
+  const [spotAdj, setSpotAdj] = useState(0);
+  const spot = spot0*(1+spotAdj/100);
 
-  // Sync external seedLegs
-  const prevSeed = useRef(seedLegs);
+  const spotForLeg = useCallback(leg=>{
+    if(!leg.real||!leg.ticker) return spot;
+    const live=liveSpots[leg.ticker];
+    if(live) return live*(1+spotAdj/100);
+    const pos=portData?.positions?.find(p=>p.ticker===leg.ticker);
+    return pos?.mid||spot;
+  },[spot,spotAdj,liveSpots,portData]);
+
+  const strikes = useMemo(()=>[...new Set(chain.map(c=>c.strike))].sort((a,b)=>a-b),[chain]);
+
+  // ── Sync seedLegs ─────────────────────────────────────────────────────────
+  const prevSeed=useRef(seedLegs);
   useEffect(()=>{
     if(seedLegs&&seedLegs!==prevSeed.current&&seedLegs.length){
       setLegs(seedLegs); prevSeed.current=seedLegs;
-      setLabView("theoretical"); bumpLegVer();
+      setLabView("builder"); bumpVer();
     }
   },[seedLegs]);
 
-  // Reset dteRemaining when chain changes
-  useEffect(()=>{ setDteRemaining(dte0); },[dte0]);
-
-  // ── Leg mutation helpers ──────────────────────────────────────────────────
-  const updateLeg = useCallback((id,patch)=>{
-    setLegs(p=>p.map(l=>l.id===id?{...l,...patch}:l));
-    bumpLegVer();
-  },[]);
-  const removeLeg = id=>{setLegs(p=>p.filter(l=>l.id!==id)); bumpLegVer();};
-  const addLeg = ()=>{
+  // ── Leg helpers ───────────────────────────────────────────────────────────
+  const updateLeg=useCallback((id,patch)=>{setLegs(p=>p.map(l=>l.id===id?{...l,...patch}:l));bumpVer();},[bumpVer]);
+  const removeLeg=id=>{setLegs(p=>p.filter(l=>l.id!==id));bumpVer();};
+  const addLeg=()=>{
     const atm=strikes.length?strikes.reduce((a,b)=>Math.abs(a-spot)<Math.abs(b-spot)?a:b):spot0;
     const row=chain.find(c=>c.strike===atm&&c.type==="call");
     setLegs(p=>[...p,{id:nextLegId,type:"call",dir:"long",strike:atm,
-      iv:row?.iv||0.25,qty:1,dte:dte0,expiry:"",entry:row?.mid||0,real:false}]);
-    setNextLegId(n=>n+1); bumpLegVer();
+      iv:row?.iv||0.25,qty:1,dte:dte0,expiry:chainData?.expiry||"",
+      entry:row?.mid||0,real:false}]);
+    setNextLegId(n=>n+1);bumpVer();
   };
+  const clearAll=()=>{setLegs([]);bumpVer();};
 
-  // ── Real position helpers ─────────────────────────────────────────────────
-  const allPositions = portData?.positions||[];
-  const posToLeg=(p,id)=>({id,real:true,type:p.type||"call",dir:p.direction||"long",
-    strike:parseFloat(p.strike)||0, iv:parseFloat(p.iv)||0.25,
-    qty:parseInt(p.contracts)||1,  dte:parseInt(p.dte)||dte0,
-    expiry:p.expiry||"",           entry:parseFloat(p.entry_price)||0,
-    ticker:p.ticker,               closing:false});
-
-  const addToCombined=p=>{
-    setCombinedRealLegs(prev=>{
-      if(prev.find(l=>l.ticker===p.ticker&&l.strike===parseFloat(p.strike)&&l.type===p.type)) return prev;
-      return [...prev,posToLeg(p,200+prev.length)];
-    });
-    setLabView("combined");
+  // ── Position helpers ──────────────────────────────────────────────────────
+  const allPositions=portData?.positions||[];
+  const posToLeg=(p,id)=>({
+    id,real:true,type:p.type||"call",dir:p.direction||"long",
+    strike:parseFloat(p.strike)||0,iv:parseFloat(p.iv)||0.25,
+    qty:parseInt(p.contracts)||1,dte:parseInt(p.dte)||dte0,
+    expiry:p.expiry||"",entry:parseFloat(p.entry_price)||0,
+    ticker:p.ticker,closing:false,
+  });
+  const addPosition=p=>{
+    if(legs.find(l=>l.real&&l.ticker===p.ticker&&l.strike===parseFloat(p.strike)&&l.type===p.type))return;
+    setLegs(prev=>[...prev,posToLeg(p,nextLegId)]);
+    setNextLegId(n=>n+1);bumpVer();setLabView("builder");
   };
-  const toggleClose = id=>setCombinedRealLegs(prev=>prev.map(l=>l.id===id?{...l,closing:!l.closing}:l));
-  const exitAll     = ()=>setCombinedRealLegs(prev=>prev.map(l=>({...l,closing:true})));
-  const restoreAll  = ()=>setCombinedRealLegs(prev=>prev.map(l=>({...l,closing:false})));
+  const toggleClose=id=>{setLegs(p=>p.map(l=>l.id===id?{...l,closing:!l.closing}:l));bumpVer();};
+  const exitAll   =()=>{setLegs(p=>p.map(l=>l.real?{...l,closing:true}:l));bumpVer();};
+  const restoreAll=()=>{setLegs(p=>p.map(l=>({...l,closing:false})));bumpVer();};
 
-  // ── IV application ────────────────────────────────────────────────────────
-  const applyIV = ls=>ls.map(l=>({...l,iv:Math.max(0.01,(l.iv||0.25)+ivShift)}));
+  // ── Effective legs (IV only — no DTE here, each leg uses legT) ───────────
+  const effectiveLegs=useMemo(()=>legs.map(l=>({
+    ...l,
+    iv: Math.max(0.01,(l.iv||0.25)),
+    // Ensure closing flag is preserved for calcPayoff
+    closing: l.closing||false,
+  })),[legVer]);
 
-  // Apply DTE cap: each leg's effective DTE = min(leg.dte, dteRemaining)
-  const applyDTE = ls=>ls.map(l=>({...l,dte:Math.min(l.dte||dte0, dteRemaining)}));
-
-  const theoreticalLegs = useMemo(()=>applyIV(applyDTE(legs)),          [legVer,ivShift,dteRemaining]);
-  const filteredReal    = useMemo(()=>filterTicker
-    ? combinedRealLegs.filter(l=>l.ticker===ticker)
-    : combinedRealLegs,                                                  [combinedRealLegs,filterTicker,ticker]);
-  const realLegs        = useMemo(()=>applyIV(applyDTE(filteredReal)),   [filteredReal,ivShift,dteRemaining]);
-  const combinedLegs    = useMemo(()=>[...realLegs,...theoreticalLegs],  [realLegs,theoreticalLegs]);
-
-  const activeLegSet = labView==="positions"?realLegs
-                     : labView==="theoretical"?theoreticalLegs
-                     : combinedLegs;
-
-  // ── Payoff ────────────────────────────────────────────────────────────────
+  // ── Payoff (using analysisDate for T per leg) ─────────────────────────────
   const lo=spot0*0.75, hi=spot0*1.25, N=80;
-  const spotRange = useMemo(()=>Array.from({length:N},(_,i)=>lo+(hi-lo)*i/(N-1)),[lo,hi]);
-  // dteRatio for chart = 1.0 (legs already have DTE applied via applyDTE)
-  const payoffData = useMemo(
-    ()=>calcPayoff(activeLegSet, spotRange, 1.0, r),
-    [legVer, ivShift, dteRemaining, spotAdj, filterTicker, labView]
-  );
+  const spotRange=useMemo(()=>Array.from({length:N},(_,i)=>lo+(hi-lo)*i/(N-1)),[lo,hi]);
+
+  const payoffData=useMemo(()=>{
+    return spotRange.map(S=>{
+      let pnl=0,expiry=0;
+      effectiveLegs.forEach(leg=>{
+        const baseSign=leg.dir==="long"?1:-1;
+        const sign=leg.closing?-baseSign:baseSign;
+        const T=legT(leg);
+        pnl    +=sign*(bsPrice(S,leg.strike,T,      r,leg.iv,leg.type)-leg.entry)*100*leg.qty;
+        expiry +=sign*(bsPrice(S,leg.strike,0.001,  r,leg.iv,leg.type)-leg.entry)*100*leg.qty;
+      });
+      return {S:parseFloat(S.toFixed(2)),pnl:parseFloat(pnl.toFixed(2)),expiry:parseFloat(expiry.toFixed(2))};
+    });
+  },[legVer,analysisDate,spotAdj]);
 
   // ── Greeks ────────────────────────────────────────────────────────────────
-  const netGreeks = useMemo(()=>activeLegSet.reduce((acc,l)=>{
-    const sign=l.closing?-(l.dir==="long"?1:-1):(l.dir==="long"?1:-1);
-    const T=Math.max(0.001,l.dte/365);
-    const g=bsGreeks(spot,l.strike,T,r,l.iv||0.25,l.type);
-    const m=sign*100*l.qty;
+  const netGreeks=useMemo(()=>effectiveLegs.reduce((acc,l)=>{
+    const holdSign = l.dir==="long"?1:-1;  // sign of what you HOLD
+    const T  = legT(l);
+    const S  = spotForLeg(l);
+    const g  = bsGreeks(S,l.strike,T,r,l.iv,l.type);
+    const cur = bsPrice(S,l.strike,T,r,l.iv,l.type);
+    const m  = holdSign*100*l.qty;
+    // Greeks always reflect the held position direction
+    const delta = acc.delta+g.delta*m;
+    const gamma = acc.gamma+g.gamma*m;
+    const theta = acc.theta+g.theta*m;
+    const vega  = acc.vega +g.vega*m;
+    // P&L: closing = proceeds from sale minus cost; holding = current value minus cost
+    const entryTotal = holdSign*l.entry*100*l.qty;
+    const valueTotal = holdSign*cur*100*l.qty;
+    const pnl = l.closing
+      ? (l.entry - cur)*100*l.qty*Math.abs(holdSign)  // exit: receive current, paid entry
+      : valueTotal - entryTotal;
     return {
-      delta:acc.delta+g.delta*m, gamma:acc.gamma+g.gamma*m,
-      theta:acc.theta+g.theta*m, vega:acc.vega+g.vega*m,
-      value:acc.value+sign*bsPrice(spot,l.strike,T,r,l.iv||0.25,l.type)*100*l.qty,
-      cost: acc.cost +sign*l.entry*100*l.qty,
+      delta, gamma, theta, vega,
+      value: acc.value + (l.closing ? (cur*100*l.qty) : valueTotal),
+      cost:  acc.cost  + (l.entry*100*l.qty),
+      pnl:   acc.pnl   + pnl,
     };
-  },{delta:0,gamma:0,theta:0,vega:0,value:0,cost:0}),
-  [legVer,ivShift,dteRemaining,spotAdj,filterTicker,labView]);
+  },{delta:0,gamma:0,theta:0,vega:0,value:0,cost:0,pnl:0}),
+  [legVer,analysisDate,spotAdj,liveSpots]);
 
-  const unrealizedPnl = netGreeks.value - netGreeks.cost;
+  // Use explicit pnl field so closing positions show exit P&L correctly
+  const unrealizedPnl = netGreeks.pnl;
 
-  // Per-leg display P&L (not memoized — cheap, called per-row)
-  const legCurrentPnl = leg=>{
-    const baseSign=leg.dir==="long"?1:-1;
-    const sign=leg.closing?-baseSign:baseSign;
-    const T=Math.max(0.001,leg.dte/365);
-    return sign*(bsPrice(spot,leg.strike,T,r,(leg.iv||0.25),leg.type)-leg.entry)*100*leg.qty;
-  };
+
+  const legPnl=useCallback(l=>{
+    const holdSign=l.dir==="long"?1:-1;
+    const T=legT(l);
+    const S=spotForLeg(l);
+    const cur=bsPrice(S,l.strike,T,r,l.iv,l.type);
+    // Closing: P&L = what we receive now minus what we paid (positive = profit from closing)
+    // Holding: P&L = current value minus entry cost
+    return l.closing
+      ? (cur - l.entry)*100*l.qty  // always positive when in profit regardless of direction
+      : holdSign*(cur - l.entry)*100*l.qty;
+  },[legT,spotForLeg]);
 
   // ── Stats ─────────────────────────────────────────────────────────────────
-  const expiryPnls = payoffData.map(d=>d.expiry);
-  const maxProfit  = expiryPnls.length ? Math.max(...expiryPnls) : 0;
-  const maxLoss    = expiryPnls.length ? Math.min(...expiryPnls) : 0;
-  const breakevens = [];
+  const expiryVals=payoffData.map(d=>d.expiry);
+  const maxProfit =expiryVals.length?Math.max(...expiryVals):0;
+  const maxLoss   =expiryVals.length?Math.min(...expiryVals):0;
+  const breakevens=[];
   for(let i=1;i<payoffData.length;i++){
-    const a=payoffData[i-1].expiry, b=payoffData[i].expiry;
+    const a=payoffData[i-1].expiry,b=payoffData[i].expiry;
     if((a<0&&b>=0)||(a>=0&&b<0))
       breakevens.push((payoffData[i-1].S+(payoffData[i].S-payoffData[i-1].S)*(0-a)/(b-a)).toFixed(2));
   }
-  const allVals = payoffData.flatMap(d=>[d.pnl,d.expiry]);
-  const yDom = allVals.length
-    ? [Math.min(Math.min(...allVals)*1.15,-100), Math.max(Math.max(...allVals)*1.15,100)]
-    : [-100,100];
+  const allVals=payoffData.flatMap(d=>[d.pnl,d.expiry]);
+  const yDom=allVals.length?[Math.min(Math.min(...allVals)*1.15,-100),Math.max(Math.max(...allVals)*1.15,100)]:[-100,100];
 
-  // ── Shared view helpers (inline JSX — no inner components) ───────────────
-
-  const scenarioPanel = (
+  // ── Shared inline panels ──────────────────────────────────────────────────
+  const scenarioPanel=(
     <div style={{border:"1px solid var(--border)",padding:"8px 12px",background:"var(--bg1)"}}>
       <div style={{fontSize:9,color:"#444",letterSpacing:"0.1em",marginBottom:7}}>SCENARIO</div>
       <SliderRow label="UNDERLYING" value={spotAdj} min={-25} max={25} step={0.5}
         onChange={setSpotAdj}
         display={`${spotAdj>=0?"+":""}${spotAdj.toFixed(1)}%  $${fmt(spot)}`}/>
-      <SliderRow label="DTE (days)" value={dteRemaining} min={0} max={maxDTE} step={1}
-        onChange={v=>setDteRemaining(Math.round(v))}
-        display={`${Math.round(dteRemaining)}d remaining`}/>
-      <SliderRow label="IV SHIFT" value={Math.round(ivShift*100)} min={-30} max={30} step={1}
-        onChange={v=>setIvShift(v/100)}
-        display={`${ivShift>=0?"+":""}${(ivShift*100).toFixed(0)}%`}/>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:6}}>
+        <span style={{fontSize:9,color:"#444",letterSpacing:"0.08em",width:82,flexShrink:0}}>
+          DATE
+        </span>
+        <input type="date"
+          value={analysisDate}
+          min={todayStr}
+          max={maxExpiry}
+          onChange={e=>setAnalysisDate(e.target.value)}
+          style={{flex:1,background:"var(--bg2)",border:"1px solid var(--border2)",
+            color:"#ccc",fontFamily:"var(--mono)",fontSize:10,padding:"2px 8px",
+            outline:"none",colorScheme:"dark"}}/>
+        <span style={{fontSize:10,color:"#555",width:80,textAlign:"right",flexShrink:0}}>
+          {analysisDate===todayStr?"today":analysisDate}
+        </span>
+      </div>
     </div>
   );
 
-  const chartToggle = (
-    <div style={{display:"flex",gap:2}}>
-      {["simple","multi"].map(m=>(
-        <button key={m} onClick={()=>setChartMode(m)}
-          style={{background:chartMode===m?"var(--green)":"none",border:"1px solid var(--border2)",
-            color:chartMode===m?"#000":"#555",fontFamily:"var(--mono)",fontSize:9,
-            padding:"2px 7px",cursor:"pointer"}}>{m.toUpperCase()}</button>
-      ))}
-    </div>
-  );
-
-  const chartPanel = (title) => (
+  const chartPanel=title=>(
     <div style={{border:"1px solid var(--border)",padding:"8px 12px",background:"var(--bg1)"}}>
       <div style={{display:"flex",alignItems:"center",marginBottom:6}}>
         <span style={{fontSize:9,color:"#444",letterSpacing:"0.1em",flex:1}}>{title}</span>
-        {chartToggle}
+        <div style={{display:"flex",gap:2}}>
+          {["simple","multi"].map(m=>(
+            <button key={m} onClick={()=>setChartMode(m)}
+              style={{background:chartMode===m?"var(--green)":"none",
+                border:"1px solid var(--border2)",color:chartMode===m?"#000":"#555",
+                fontFamily:"var(--mono)",fontSize:9,padding:"2px 7px",cursor:"pointer"}}>
+              {m.toUpperCase()}
+            </button>
+          ))}
+        </div>
       </div>
-      <PayoffChart data={payoffData} legs={activeLegSet}
-        chartMode={chartMode} lo={lo} hi={hi} yDom={yDom} r={r}/>
+      <PayoffChart data={payoffData} legs={effectiveLegs}
+        chartMode={chartMode} lo={lo} hi={hi} yDom={yDom} r={r} currentSpot={spot}/>
     </div>
   );
 
-  const greeksPanel = (
+  const ivTable=(
+    <div style={{border:"1px solid var(--border)",padding:"8px 12px",background:"var(--bg1)"}}>
+      <div style={{display:"flex",alignItems:"center",marginBottom:8}}>
+        <span style={{fontSize:9,color:"#444",letterSpacing:"0.1em",flex:1}}>
+          IV SCENARIO TABLE — price × IV shift
+        </span>
+        <div style={{display:"flex",gap:2}}>
+          {[["pnl","P&L"],["value","VALUE"]].map(([m,label])=>(
+            <button key={m} onClick={()=>setTableMode(m)}
+              style={{background:tableMode===m?"var(--green)":"none",
+                border:"1px solid var(--border2)",color:tableMode===m?"#000":"#555",
+                fontFamily:"var(--mono)",fontSize:9,padding:"2px 7px",cursor:"pointer"}}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <IVScenarioTable
+        legs={effectiveLegs} spot0={spot0} spot={spot} r={r}
+        analysisDate={analysisDate} mode={tableMode}/>
+    </div>
+  );
+
+  const greeksPanel=(
     <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
       <div style={{flex:2,minWidth:180,border:"1px solid var(--border)",padding:"8px 12px",background:"var(--bg1)"}}>
         <div style={{fontSize:9,color:"#444",letterSpacing:"0.1em",marginBottom:7}}>NET GREEKS</div>
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"4px 14px"}}>
-          {[["Δ DELTA", netGreeks.delta.toFixed(3),  netGreeks.delta>0?"#00e5a0":netGreeks.delta<0?"#ff4d6d":"#555"],
-            ["Γ GAMMA", netGreeks.gamma.toFixed(4),  "#4da8ff"],
-            ["Θ THETA", `${netGreeks.theta.toFixed(2)}/d`, netGreeks.theta<0?"#ff4d6d":"#00e5a0"],
-            ["V VEGA",  netGreeks.vega.toFixed(3),   "#9b6dff"],
-            ["P&L NOW", `${unrealizedPnl>=0?"+":""}$${unrealizedPnl.toFixed(2)}`, pnlColor(unrealizedPnl)],
+          {[["Δ DELTA",netGreeks.delta.toFixed(3),netGreeks.delta>0?"#00e5a0":netGreeks.delta<0?"#ff4d6d":"#555"],
+            ["Γ GAMMA",netGreeks.gamma.toFixed(4),"#4da8ff"],
+            ["Θ THETA",`${netGreeks.theta.toFixed(2)}/d`,netGreeks.theta<0?"#ff4d6d":"#00e5a0"],
+            ["V VEGA", netGreeks.vega.toFixed(3),"#9b6dff"],
+            ["P&L NOW",`${unrealizedPnl>=0?"+":""}$${unrealizedPnl.toFixed(2)}`,pnlColor(unrealizedPnl)],
           ].map(([l,v,c])=>(
             <div key={l} style={{display:"flex",justifyContent:"space-between"}}>
               <span style={{fontSize:9,color:"#444"}}>{l}</span>
@@ -957,7 +1313,7 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[]}) {
         <div style={{fontSize:9,color:"#444",letterSpacing:"0.1em",marginBottom:7}}>TRADE STATS</div>
         <div style={{display:"flex",flexDirection:"column",gap:5}}>
           {[["MAX PROFIT",maxProfit>9998?"UNLIM":`+$${maxProfit.toFixed(0)}`,"#00e5a0"],
-            ["MAX LOSS",  maxLoss<-9998?"UNLIM":`-$${Math.abs(maxLoss).toFixed(0)}`,"#ff4d6d"],
+            ["MAX LOSS",  maxLoss<-9998?"UNLIM": `-$${Math.abs(maxLoss).toFixed(0)}`,"#ff4d6d"],
           ].map(([l,v,c])=>(
             <div key={l} style={{display:"flex",justifyContent:"space-between"}}>
               <span style={{fontSize:9,color:"#444"}}>{l}</span>
@@ -980,11 +1336,11 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[]}) {
     <div style={{display:"flex",flexDirection:"column",gap:8,padding:"8px 12px",
       overflow:"auto",flex:1}}>
 
-      {/* View tabs */}
-      <div style={{display:"flex",alignItems:"center",gap:6,
-        borderBottom:"1px solid var(--border)",paddingBottom:8,flexWrap:"wrap"}}>
+      {/* Tabs */}
+      <div style={{display:"flex",alignItems:"center",gap:6,flexWrap:"wrap",
+        borderBottom:"1px solid var(--border)",paddingBottom:8}}>
         <div style={{display:"flex",gap:2}}>
-          {[["positions","▤ POSITIONS"],["theoretical","◎ THEORETICAL"],["combined","⊕ COMBINED"]].map(([v,label])=>(
+          {[["positions","▤ POSITIONS"],["builder","⊕ BUILDER"]].map(([v,label])=>(
             <button key={v} onClick={()=>setLabView(v)}
               style={{background:labView===v?"rgba(0,229,160,0.08)":"none",
                 border:`1px solid ${labView===v?"rgba(0,229,160,0.35)":"var(--border)"}`,
@@ -995,176 +1351,127 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[]}) {
           ))}
         </div>
         <span style={{fontSize:10,color:"#444",marginLeft:4}}>
-          {ticker&&<>{ticker} · </>}
-          ${fmt(spot)} · {Math.round(dteRemaining)}d
+          {ticker&&<>{ticker} · </>}${fmt(spot)}
         </span>
-        {labView==="theoretical"&&(
-          <button onClick={addLeg}
-            style={{marginLeft:"auto",background:"var(--green)",border:"none",color:"#000",
-              fontFamily:"var(--mono)",fontSize:10,fontWeight:700,padding:"3px 10px",cursor:"pointer"}}>
-            + ADD LEG
-          </button>
+        {labView==="builder"&&(
+          <div style={{marginLeft:"auto",display:"flex",gap:4}}>
+            {legs.some(l=>l.real&&!l.closing)&&(
+              <button onClick={exitAll}
+                style={{background:"rgba(245,166,35,0.08)",border:"1px solid rgba(245,166,35,0.3)",
+                  color:"#f5a623",fontFamily:"var(--mono)",fontSize:9,padding:"2px 8px",cursor:"pointer"}}>
+                EXIT ALL
+              </button>
+            )}
+            {legs.some(l=>l.closing)&&(
+              <button onClick={restoreAll}
+                style={{background:"none",border:"1px solid var(--border)",color:"#555",
+                  fontFamily:"var(--mono)",fontSize:9,padding:"2px 8px",cursor:"pointer"}}>
+                RESTORE
+              </button>
+            )}
+            {legs.length>0&&(
+              <button onClick={clearAll}
+                style={{background:"none",border:"1px solid var(--border)",color:"#555",
+                  fontFamily:"var(--mono)",fontSize:9,padding:"2px 8px",cursor:"pointer"}}
+                onMouseEnter={e=>{e.currentTarget.style.color="var(--red)";e.currentTarget.style.borderColor="var(--red)";}}
+                onMouseLeave={e=>{e.currentTarget.style.color="#555";e.currentTarget.style.borderColor="var(--border)";}}>
+                CLEAR
+              </button>
+            )}
+            <button onClick={addLeg}
+              style={{background:"var(--green)",border:"none",color:"#000",
+                fontFamily:"var(--mono)",fontSize:10,fontWeight:700,
+                padding:"3px 10px",cursor:"pointer"}}>
+              + LEG
+            </button>
+          </div>
         )}
       </div>
 
-      {/* ── POSITIONS ── */}
+      {/* POSITIONS view */}
       {labView==="positions"&&(
-        <div style={{display:"flex",flexDirection:"column",gap:5}}>
-          <div style={{display:"flex",alignItems:"center",gap:8}}>
-            <span style={{fontSize:9,color:"#444"}}>
-              Portfolio positions · click to add to COMBINED
-            </span>
-            {ticker&&<span style={{fontSize:9,color:"#4da8ff",marginLeft:"auto"}}>
-              Viewing: {ticker}
-            </span>}
+        <div style={{display:"flex",flexDirection:"column",gap:4}}>
+          <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <span style={{fontSize:9,color:"#444"}}>Click position to add to Builder</span>
+            {ticker&&<span style={{fontSize:9,color:"#4da8ff"}}>Analysis ticker: {ticker}</span>}
           </div>
           {allPositions.length===0
-            ? <div style={{padding:"12px",fontSize:10,color:"#333",textAlign:"center",
+            ?<div style={{padding:"12px",fontSize:10,color:"#333",textAlign:"center",
                 border:"1px dashed var(--border2)"}}>
-                No positions — import via sidebar → Settings → Portfolio Import
-              </div>
-            : allPositions.map((p,i)=>{
-                const leg=posToLeg(p,100+i);
-                const lpnl=legCurrentPnl({...leg,iv:Math.max(0.01,(leg.iv||0.25)+ivShift),
-                                           dte:Math.min(leg.dte,dteRemaining)});
-                const inC=combinedRealLegs.some(
-                  l=>l.ticker===p.ticker&&l.strike===parseFloat(p.strike)&&l.type===p.type);
-                return (
-                  <div key={i} onClick={()=>!inC&&addToCombined(p)}
-                    title={inC?"Already in Combined":"Click to add to Combined"}
-                    style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",
-                      border:"1px solid var(--border)",background:"var(--bg1)",
-                      cursor:inC?"default":"pointer",
-                      borderLeft:`3px solid ${p.direction==="long"?"#00e5a0":"#ff4d6d"}`,
-                      opacity:inC?0.5:1,transition:"border-color 0.15s"}}
-                    onMouseEnter={e=>{ if(!inC) e.currentTarget.style.borderColor="var(--green)"; }}
-                    onMouseLeave={e=>{ e.currentTarget.style.borderColor="var(--border)"; }}>
-                    <span style={{fontWeight:700,color:"#fff",fontSize:10,width:46}}>{p.ticker}</span>
-                    <span style={{fontSize:10,color:p.direction==="long"?"#00e5a0":"#ff4d6d"}}>
-                      {p.direction?.toUpperCase()} {p.type}
-                    </span>
-                    <span style={{fontSize:10,color:"#555"}}>${fmt(p.strike)}</span>
-                    <span style={{fontSize:9,color:"#444"}}>{p.expiry}</span>
-                    <span style={{fontSize:9,color:"#555"}}>{p.contracts}×</span>
-                    <span style={{marginLeft:"auto",fontSize:11,fontWeight:700,color:pnlColor(lpnl)}}>
-                      {lpnl>=0?"+":""}{fmtUSD(lpnl)}
-                    </span>
-                    <span style={{fontSize:9,color:inC?"#555":"#333",flexShrink:0}}>
-                      {inC?"● added":"+ combined"}
-                    </span>
-                  </div>
-                );
-              })
+               No positions — import via sidebar → Settings → Portfolio Import
+             </div>
+            :allPositions.map((p,i)=>{
+               const leg=posToLeg(p,100+i);
+               const alreadyIn=legs.some(l=>l.real&&l.ticker===p.ticker&&
+                 l.strike===parseFloat(p.strike)&&l.type===p.type);
+               const pnl=legPnl({...leg,iv:Math.max(0.01,leg.iv)});
+               return (
+                 <div key={i} onClick={()=>!alreadyIn&&addPosition(p)}
+                   title={alreadyIn?"Already in Builder":"Add to Builder"}
+                   style={{display:"flex",alignItems:"center",gap:8,padding:"6px 10px",
+                     background:"var(--bg1)",cursor:alreadyIn?"default":"pointer",
+                     border:"1px solid var(--border)",
+                     borderLeft:`3px solid ${p.direction==="long"?"#00e5a0":"#ff4d6d"}`,
+                     opacity:alreadyIn?0.45:1,transition:"border-color 0.15s"}}
+                   onMouseEnter={e=>{if(!alreadyIn)e.currentTarget.style.borderColor="var(--green)";}}
+                   onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";}}>
+                   <span style={{fontWeight:700,color:"#fff",fontSize:10,width:46}}>{p.ticker}</span>
+                   <span style={{fontSize:9,color:"#555",marginLeft:-2}}>
+                     ${fmt(liveSpots[p.ticker]||0)}
+                   </span>
+                   <span style={{fontSize:10,color:p.direction==="long"?"#00e5a0":"#ff4d6d"}}>
+                     {p.direction?.toUpperCase()} {p.type}
+                   </span>
+                   <span style={{fontSize:10,color:"#555"}}>${fmt(p.strike)}</span>
+                   <span style={{fontSize:9,color:"#444"}}>{p.expiry}</span>
+                   <span style={{fontSize:9,color:"#555"}}>{p.contracts}×</span>
+                   <span style={{marginLeft:"auto",fontSize:11,fontWeight:700,color:pnlColor(pnl)}}>
+                     {pnl>=0?"+":""}{fmtUSD(pnl)}
+                   </span>
+                   <span style={{fontSize:9,color:alreadyIn?"#555":"#333",flexShrink:0}}>
+                     {alreadyIn?"● in builder":"+ builder"}
+                   </span>
+                 </div>
+               );
+             })
           }
-          {allPositions.length>0&&<>{scenarioPanel}{chartPanel("PORTFOLIO PAYOFF")}{greeksPanel}</>}
+          {allPositions.length>0&&scenarioPanel}
         </div>
       )}
 
-      {/* ── THEORETICAL ── */}
-      {labView==="theoretical"&&(
+      {/* BUILDER view */}
+      {labView==="builder"&&(
         <div style={{display:"flex",flexDirection:"column",gap:5}}>
+          {legs.some(l=>l.real)&&(
+            <div style={{display:"flex",gap:10,fontSize:9,color:"#555"}}>
+              <span><span style={{display:"inline-block",width:12,height:2,background:"#00e5a0",verticalAlign:"middle",marginRight:4}}/>Real</span>
+              <span><span style={{display:"inline-block",width:12,height:2,background:"#4da8ff",verticalAlign:"middle",marginRight:4}}/>Theoretical</span>
+              {legs.some(l=>l.closing)&&<span><span style={{display:"inline-block",width:12,height:2,background:"#f5a623",verticalAlign:"middle",marginRight:4}}/>Closing</span>}
+            </div>
+          )}
           {legs.length===0
-            ? <div style={{padding:"12px",fontSize:10,color:"#333",textAlign:"center",
+            ?<div style={{padding:"16px",fontSize:10,color:"#333",textAlign:"center",
                 border:"1px dashed var(--border2)"}}>
-                No legs — click + ADD LEG, or click a strike + in the Chain view
-              </div>
-            : legs.map((leg,i)=>(
-                <LegRow key={leg.id}
-                  leg={{...leg,iv:Math.max(0.01,(leg.iv||0.25)+ivShift),
-                        dte:Math.min(leg.dte||dte0,dteRemaining)}}
-                  idx={i} editable={true}
-                  pnl={legCurrentPnl({...leg,iv:Math.max(0.01,(leg.iv||0.25)+ivShift),
-                                       dte:Math.min(leg.dte||dte0,dteRemaining)})}
-                  onUpdate={updateLeg} strikes={strikes} chain={chain} expiries={expiries}
-                  onRemove={removeLeg}/>
-              ))
+               Click <b style={{color:"#00e5a0"}}>+ LEG</b> to add a theoretical leg ·
+               or go to <b style={{color:"#4da8ff"}}>POSITIONS</b> to add real holdings
+             </div>
+            :legs.map((leg,i)=>(
+               <LegRow key={leg.id}
+                 leg={leg} idx={i} editable={!leg.real}
+                 pnl={legPnl(leg)}
+                 onUpdate={updateLeg} strikes={strikes} chain={chain} expiries={expiries}
+                 onToggleClose={leg.real?toggleClose:undefined}
+                 onRemove={removeLeg}/>
+             ))
           }
-          {legs.length>0&&<>{scenarioPanel}{chartPanel("PAYOFF DIAGRAM")}{greeksPanel}</>}
-        </div>
-      )}
-
-      {/* ── COMBINED ── */}
-      {labView==="combined"&&(
-        <div style={{display:"flex",flexDirection:"column",gap:5}}>
-          {/* Legend + controls */}
-          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-            <div style={{display:"flex",gap:10,fontSize:9,color:"#555",alignItems:"center"}}>
-              <span><span style={{display:"inline-block",width:14,height:2,background:"#00e5a0",
-                verticalAlign:"middle",marginRight:4}}/>Real</span>
-              <span><span style={{display:"inline-block",width:14,height:2,background:"#4da8ff",
-                verticalAlign:"middle",marginRight:4}}/>Theoretical</span>
-              <span><span style={{display:"inline-block",width:14,height:2,background:"#f5a623",
-                verticalAlign:"middle",marginRight:4}}/>Closing</span>
-            </div>
-            <div style={{marginLeft:"auto",display:"flex",gap:4}}>
-              <button onClick={()=>setFilterTicker(f=>!f)}
-                style={{background:filterTicker?"rgba(77,168,255,0.08)":"none",
-                  border:`1px solid ${filterTicker?"rgba(77,168,255,0.35)":"var(--border)"}`,
-                  color:filterTicker?"#4da8ff":"#555",fontFamily:"var(--mono)",
-                  fontSize:9,padding:"2px 8px",cursor:"pointer",transition:"all 0.15s"}}>
-                {filterTicker?`${ticker} ONLY`:"ALL TICKERS"}
-              </button>
-              {combinedRealLegs.some(l=>!l.closing)&&(
-                <button onClick={exitAll}
-                  style={{background:"rgba(245,166,35,0.08)",border:"1px solid rgba(245,166,35,0.3)",
-                    color:"#f5a623",fontFamily:"var(--mono)",fontSize:9,padding:"2px 8px",cursor:"pointer"}}>
-                  EXIT ALL
-                </button>
-              )}
-              {combinedRealLegs.some(l=>l.closing)&&(
-                <button onClick={restoreAll}
-                  style={{background:"none",border:"1px solid var(--border)",color:"#555",
-                    fontFamily:"var(--mono)",fontSize:9,padding:"2px 8px",cursor:"pointer"}}>
-                  RESTORE ALL
-                </button>
-              )}
-            </div>
-          </div>
-
-          {combinedRealLegs.length===0&&legs.length===0&&(
-            <div style={{padding:"12px",fontSize:10,color:"#333",textAlign:"center",
-              border:"1px dashed var(--border2)"}}>
-              Add real positions from POSITIONS · Add legs from THEORETICAL
-            </div>
-          )}
-
-          {combinedRealLegs.length>0&&(
-            <div>
-              <div style={{fontSize:9,color:"#444",letterSpacing:"0.06em",marginBottom:4}}>
-                REAL POSITIONS {filterTicker&&ticker?`(${ticker})`:"(ALL)"}
-              </div>
-              {combinedRealLegs.map((leg,i)=>(
-                <LegRow key={leg.id}
-                  leg={{...leg,iv:Math.max(0.01,(leg.iv||0.25)+ivShift),
-                        dte:Math.min(leg.dte||dte0,dteRemaining)}}
-                  idx={i} editable={false}
-                  pnl={legCurrentPnl({...leg,iv:Math.max(0.01,(leg.iv||0.25)+ivShift),
-                                       dte:Math.min(leg.dte||dte0,dteRemaining)})}
-                  onToggleClose={toggleClose}
-                  onRemove={id=>setCombinedRealLegs(p=>p.filter(l=>l.id!==id))}/>
-              ))}
-            </div>
-          )}
-
           {legs.length>0&&(
-            <div style={{marginTop:combinedRealLegs.length?6:0}}>
-              <div style={{fontSize:9,color:"#444",letterSpacing:"0.06em",marginBottom:4}}>
-                THEORETICAL LEGS
-              </div>
-              {legs.map((leg,i)=>(
-                <LegRow key={leg.id}
-                  leg={{...leg,iv:Math.max(0.01,(leg.iv||0.25)+ivShift),
-                        dte:Math.min(leg.dte||dte0,dteRemaining)}}
-                  idx={i} editable={true}
-                  pnl={legCurrentPnl({...leg,iv:Math.max(0.01,(leg.iv||0.25)+ivShift),
-                                       dte:Math.min(leg.dte||dte0,dteRemaining)})}
-                  onUpdate={updateLeg} strikes={strikes} chain={chain} expiries={expiries}
-                  onRemove={removeLeg}/>
-              ))}
-            </div>
+            <>
+              {scenarioPanel}
+              {chartPanel(legs.some(l=>l.real)?"COMBINED PAYOFF":"PAYOFF DIAGRAM")}
+              {greeksPanel}
+              {ivTable}
+            </>
           )}
-
-          {combinedLegs.length>0&&<>{scenarioPanel}{chartPanel("COMBINED PAYOFF")}{greeksPanel}</>}
         </div>
       )}
 
@@ -1568,7 +1875,7 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
 
 function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
                fetchPortfolio,portLoading,recentTickers,setRecentTickers,compact,
-               view,setView,onOpenRight,role="left"}) {
+               view,setView,onOpenRight,role="left",onActiveTicker}) {
 
   const [activeTabId,setActiveTabId] = useState(tabs[0]?.id||1);
   const [inputTicker,setInput]       = useState("");
@@ -1594,6 +1901,9 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
   }, []);
 
   const activeTab = tabs.find(t=>t.id===activeTabId)||tabs[0];
+  useEffect(()=>{
+    if(onActiveTicker&&activeTab?.ticker) onActiveTicker(activeTab.ticker);
+  },[activeTab?.ticker]);
 
   useEffect(()=>{
     const ticker=activeTab?.ticker;
@@ -1758,7 +2068,7 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
               </button>
             </div>
             {portLoading&&<div className="loading-bar">LOADING…</div>}
-            <PortfolioPanel data={portData} onTickerOpen={tkr=>{
+            <PortfolioPanel data={portData} liveSpots={liveSpots} onTickerOpen={tkr=>{
               if(onOpenRight){ onOpenRight(tkr); }
               else { openTicker(tkr); setView("chain"); }
             }}/>
@@ -1822,6 +2132,7 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
             chainData={activeTab.chainData}
             seedLegs={labLegs}
             chainExpiries={activeTab?.expiries||[]}
+            liveSpots={liveSpots}
             onClose={()=>{ pushNav(view,activeTabId); setView("strategy"); }}
           />
         )}
@@ -1868,7 +2179,8 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
 // ── AnalysisPane — right panel: strategy + lab combined ───────────────────────
 
 function AnalysisPane({tabs,setTabs,nextId,setNextId,liveSpots,
-                       labLegs,setLabLegs,view,setView,onClose,portData}) {
+                       labLegs,setLabLegs,view,setView,onClose,portData,serverStatus={},
+                       followTicker=null,pinned=false,onTogglePin}) {
 
   const [activeTabId,setActiveTabId] = useState(tabs[0]?.id||1);
   const wsRefs = useRef({});
@@ -1908,6 +2220,23 @@ function AnalysisPane({tabs,setTabs,nextId,setNextId,liveSpots,
       fetchChain(activeTab.id, activeTab.ticker, null);
     }
   },[activeTab?.id]);
+
+  // Follow left pane ticker when not pinned
+  useEffect(()=>{
+    if(!followTicker) return;
+    const existing = tabs.find(t=>t.ticker===followTicker);
+    if(existing){
+      setActiveTabId(existing.id);
+    } else {
+      const id=nextId; setNextId(n=>n+1);
+      setTabs(prev=>{
+        if(prev.find(t=>t.ticker===followTicker)) return prev;
+        return [...prev,{id,ticker:followTicker,chainData:null,expiry:null,
+                          expiries:[],loading:false,error:null,activeType:"call",livePrice:null}];
+      });
+      setActiveTabId(id);
+    }
+  },[followTicker]);
 
   const livePrice = activeTab?.livePrice||chainData?.spot;
   const src = chainData?.source;
@@ -1961,10 +2290,21 @@ function AnalysisPane({tabs,setTabs,nextId,setNextId,liveSpots,
         {activeTab?.loading&&(
           <span style={{color:"var(--green)",animation:"blink 1s step-start infinite",fontSize:9}}>●</span>
         )}
+        {/* Pin button */}
+        <button onClick={onTogglePin} title={pinned?"Unpin (follow left pane)":"Pin to current ticker"}
+          style={{background:pinned?"rgba(245,166,35,0.1)":"none",
+            border:`1px solid ${pinned?"rgba(245,166,35,0.4)":"var(--border2)"}`,
+            color:pinned?"#f5a623":"#555",fontFamily:"var(--mono)",
+            fontSize:10,padding:"2px 8px",cursor:"pointer",transition:"all 0.15s",
+            flexShrink:0}}
+          onMouseEnter={e=>{e.currentTarget.style.borderColor="#f5a623";e.currentTarget.style.color="#f5a623";}}
+          onMouseLeave={e=>{if(!pinned){e.currentTarget.style.borderColor="var(--border2)";e.currentTarget.style.color="#555";}}}>
+          {pinned?"📌 PINNED":"○ PIN"}
+        </button>
         <button onClick={onClose} title="Close analysis pane"
           style={{background:"none",border:"1px solid var(--border2)",color:"#444",
             fontFamily:"var(--mono)",fontSize:10,padding:"2px 6px",cursor:"pointer",
-            transition:"all 0.15s",flexShrink:0,marginLeft:4}}
+            transition:"all 0.15s",flexShrink:0}}
           onMouseEnter={e=>{e.currentTarget.style.color="var(--red)";e.currentTarget.style.borderColor="var(--red)";}}
           onMouseLeave={e=>{e.currentTarget.style.color="#444";e.currentTarget.style.borderColor="var(--border2)";}}>
           ✕
@@ -2006,7 +2346,8 @@ function AnalysisPane({tabs,setTabs,nextId,setNextId,liveSpots,
             {/* Lab below strategy */}
             <LabPanel chainData={chainData} seedLegs={labLegs}
               portData={portData} onClose={null}
-              chainExpiries={activeTab?.expiries||[]}/>
+              chainExpiries={activeTab?.expiries||[]}
+              liveSpots={liveSpots}/>
           </div>
         )}
 
@@ -2048,9 +2389,15 @@ function AnalysisPane({tabs,setTabs,nextId,setNextId,liveSpots,
       <div style={{display:"flex",alignItems:"center",gap:8,padding:"4px 12px",
         borderTop:"1px solid var(--border)",fontSize:10,color:"var(--muted)",
         background:"var(--bg1)",flexShrink:0}}>
-        <span style={{color:src==="tradier"?"#00e5a0":src==="polygon"?"#4da8ff":chainData?"#555":"#2a2a2a"}}
-          title={src==="tradier"?"Real-time via Tradier":src==="polygon"?"Real-time via Polygon":"15-min delayed"}>
-          {src==="tradier"?"● TRADIER":src==="polygon"?"● POLYGON":chainData?"○ YFINANCE":"—"}
+        <span style={{color:src==="tradier"||serverStatus.tradier_active?"#00e5a0":
+                        src==="polygon"||serverStatus.polygon_active?"#4da8ff":chainData?"#555":"#2a2a2a"}}
+          title={src==="tradier"?"Real-time via Tradier (this chain)":
+                 serverStatus.tradier_active?"Tradier active (chain not yet loaded)":
+                 src==="polygon"?"Real-time via Polygon":"15-min delayed via yfinance"}>
+          {src==="tradier"?"● TRADIER":
+           src==="polygon"?"● POLYGON":
+           chainData?(serverStatus.tradier_active?"● TRADIER (loading)":"○ YFINANCE"):
+           serverStatus.tradier_active?"● TRADIER":"—"}
         </span>
         <span className="muted">·</span>
         <span style={{color:"#2a2a2a"}}>{chainData?.fetched_at||""}</span>
@@ -2108,6 +2455,8 @@ export default function App() {
   // Right pane state (independent)
   const [viewB,setViewB]             = useState("analysis");
   const [labLegsB,setLabLegsB]       = useState([]);
+  const [pinnedRight,setPinnedRight]  = useState(false);
+  const [followTicker,setFollowTicker] = useState(null);
 
   const fetchPortfolio = useCallback(async()=>{
     setPortLoading(true);
@@ -2214,7 +2563,8 @@ export default function App() {
                 recentTickers={recentTickers} setRecentTickers={setRecentTickers}
                 compact={splitMode} role="left"
                 view={view} setView={setView}
-                onOpenRight={openInRight}/>
+                onOpenRight={openInRight}
+                onActiveTicker={t=>{ if(!pinnedRight) setFollowTicker(t); }}/>
             </div>
 
             {splitMode&&(
@@ -2234,7 +2584,10 @@ export default function App() {
                     labLegs={labLegsB} setLabLegs={setLabLegsB}
                     view={viewB} setView={setViewB}
                     portData={portData}
-                    onClose={()=>setSplitMode(false)}/>
+                    serverStatus={serverStatus}
+                    followTicker={pinnedRight?null:followTicker}
+                    pinned={pinnedRight} onTogglePin={()=>setPinnedRight(p=>!p)}
+                    onClose={()=>{setSplitMode(false);setPinnedRight(false);}}/>
                 </div>
               </>
             )}
