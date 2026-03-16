@@ -11,6 +11,11 @@ const fmt     = (v,d=2) => v==null||isNaN(v) ? "—" : Number(v).toFixed(d);
 const fmtPct  = v => v==null ? "—" : `${(v*100).toFixed(1)}%`;
 const fmtK    = v => v==null ? "—" : v>999 ? `${(v/1000).toFixed(1)}k` : String(v);
 const fmtUSD  = v => v==null ? "—" : `$${Math.abs(v).toFixed(2)}`;
+// Helpers for enriched spot objects {price, close, ah_change, ah_pct, is_ah}
+const spotPrice = d => d ? (typeof d==="object" ? d.price||0 : d) : 0;
+const spotIsAH  = d => !!(d && typeof d==="object" && d.is_ah);
+const spotAHPct = d => d && typeof d==="object" ? (d.ah_pct||0) : 0;
+const spotClose = d => d && typeof d==="object" ? (d.close||0) : 0;
 const clsx    = (...c) => c.filter(Boolean).join(" ");
 const pnlColor    = v => v>0?"#00e5a0":v<0?"#ff4d6d":"#888";
 const signalColor = a => ({BUY:"#00e5a0","SELL/SHORT":"#ff4d6d",EXIT:"#ff4d6d",
@@ -353,7 +358,7 @@ function PortfolioPanel({data, onTickerOpen, liveSpots={}}) {
                   const pct=p.pnl_pct||0;
                   const urg=p.dte<=21?"#ff4d6d":p.dte<=45?"#f5a623":null;
                   const isOpen=expanded.has(i);
-                  const spot = liveSpots[p.ticker] || p.mid || 0;
+                  const spot = spotPrice(liveSpots[p.ticker]) || p.mid || 0;
                   return (
                     <React.Fragment key={i}>
                       {/* Main row */}
@@ -1242,7 +1247,7 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
   const spotForLeg = useCallback(leg=>{
     if(!leg.real||!leg.ticker) return spot;
     const live=liveSpots[leg.ticker];
-    if(live) return live*(1+spotAdj/100);
+    if(live) return spotPrice(live)*(1+spotAdj/100);
     const pos=portData?.positions?.find(p=>p.ticker===leg.ticker);
     return pos?.mid||spot;
   },[spot,spotAdj,liveSpots,portData]);
@@ -1567,7 +1572,8 @@ function LabPanel({chainData, seedLegs, portData, onClose, chainExpiries=[], liv
                    onMouseLeave={e=>{e.currentTarget.style.borderColor="var(--border)";}}>
                    <span style={{fontWeight:700,color:"#fff",fontSize:10,width:46}}>{p.ticker}</span>
                    <span style={{fontSize:9,color:"#999",marginLeft:-2}}>
-                     ${fmt(liveSpots[p.ticker]||0)}
+                     ${fmt(spotPrice(liveSpots[p.ticker]))||"—"}
+                     {spotIsAH(liveSpots[p.ticker])&&<span style={{fontSize:7,color:"#f5a623",marginLeft:2}}>AH</span>}
                    </span>
                    <span style={{fontSize:10,color:p.direction==="long"?"#00e5a0":"#ff4d6d"}}>
                      {p.direction?.toUpperCase()} {p.type}
@@ -1847,9 +1853,21 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
             )}
           </div>
           {/* Stop Session */}
-          <button onClick={onStop} className="stop-btn" style={{width:"100%",padding:"5px",fontSize:10}}>
-            ■ STOP SESSION
-          </button>
+          <div style={{display:"flex",gap:4}}>
+            <button onClick={onStop} className="stop-btn"
+              style={{flex:1,padding:"5px",fontSize:10}}>
+              ■ STOP SESSION
+            </button>
+            <button onClick={()=>window.location.reload()}
+              title="Refresh frontend"
+              style={{background:"none",border:"1px solid var(--border2)",color:"var(--muted)",
+                fontFamily:"var(--mono)",fontSize:10,padding:"5px 8px",cursor:"pointer",
+                transition:"all 0.15s"}}
+              onMouseEnter={e=>{e.currentTarget.style.color="var(--green)";e.currentTarget.style.borderColor="var(--green)";}}
+              onMouseLeave={e=>{e.currentTarget.style.color="var(--muted)";e.currentTarget.style.borderColor="var(--border2)";}}>
+              ↺
+            </button>
+          </div>
         </div>
 
         {/* ── VIEWS ── */}
@@ -1887,7 +1905,7 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
             <div key={t} className="watch-row" onClick={()=>onOpenTicker(t)}>
               <span style={{fontWeight:700,color:"#fff",fontSize:11,width:48}}>{t}</span>
               <span style={{color:"#00e5a0",fontSize:11,marginLeft:"auto"}}>
-                {liveSpots[t]?`$${fmt(liveSpots[t])}`:"—"}
+                {liveSpots[t]?`$${fmt(spotPrice(liveSpots[t]))}${spotIsAH(liveSpots[t])?" AH":""}`:"—"}
               </span>
               <button onClick={e=>{e.stopPropagation();removeWatch(t);}} className="remove-btn">×</button>
             </div>
@@ -2036,7 +2054,7 @@ function Sidebar({open,serverStatus,onStop,portData,onOpenTicker,
 
 // ── Pane ───────────────────────────────────────────────────────────────────────
 
-function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
+function Pane({tabs,setTabs,nextId,setNextId,liveSpots,setLiveSpots,portData,
                fetchPortfolio,portLoading,recentTickers,setRecentTickers,
                view,setView,onOpenRight,onActiveTicker,serverStatus={}}) {
 
@@ -2070,8 +2088,14 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
     const ticker=activeTab?.ticker;
     if(!ticker||wsRefs.current[ticker]) return;
     const ws=new WebSocket(`${WS}/stream?tickers=${ticker}`);
-    ws.onmessage=e=>{const d=JSON.parse(e.data);
-      setTabs(prev=>prev.map(t=>t.ticker===ticker?{...t,livePrice:d[ticker]}:t));};
+    ws.onmessage=e=>{
+      const d=JSON.parse(e.data);
+      const raw=d[ticker];
+      const price=raw?(typeof raw==="object"?raw.price:raw):null;
+      if(price) setTabs(prev=>prev.map(t=>t.ticker===ticker?{...t,livePrice:price,liveData:raw}:t));
+      // Also update liveSpots for portfolio/lab use
+      if(raw) setLiveSpots&&setLiveSpots(prev=>({...prev,[ticker]:raw}));
+    };
     ws.onerror=()=>ws.close();
     ws.onclose=()=>{delete wsRefs.current[ticker];};
     wsRefs.current[ticker]=ws;
@@ -2149,6 +2173,10 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,portData,
                 {(tab.livePrice||tab.chainData?.spot)&&(
                   <span className="ticker-tab-price">
                     ${fmt(tab.livePrice||tab.chainData?.spot)}
+                    {tab.liveData&&spotIsAH(tab.liveData)&&(
+                      <span style={{fontSize:7,color:"#f5a623",marginLeft:2,
+                        verticalAlign:"middle"}}>AH</span>
+                    )}
                   </span>
                 )}
                 {tab.loading&&<span style={{color:"var(--green)",fontSize:7,
@@ -2352,8 +2380,14 @@ function AnalysisPane({tabs,setTabs,activeTabId,liveSpots,
     const ticker=activeTab?.ticker;
     if(!ticker||wsRefs.current[ticker]) return;
     const ws=new WebSocket(`${WS}/stream?tickers=${ticker}`);
-    ws.onmessage=e=>{const d=JSON.parse(e.data);
-      setTabs(prev=>prev.map(t=>t.ticker===ticker?{...t,livePrice:d[ticker]}:t));};
+    ws.onmessage=e=>{
+      const d=JSON.parse(e.data);
+      const raw=d[ticker];
+      const price=raw?(typeof raw==="object"?raw.price:raw):null;
+      if(price) setTabs(prev=>prev.map(t=>t.ticker===ticker?{...t,livePrice:price,liveData:raw}:t));
+      // Also update liveSpots for portfolio/lab use
+      if(raw) setLiveSpots&&setLiveSpots(prev=>({...prev,[ticker]:raw}));
+    };
     ws.onerror=()=>ws.close();
     ws.onclose=()=>{delete wsRefs.current[ticker];};
     wsRefs.current[ticker]=ws;
@@ -2399,7 +2433,18 @@ function AnalysisPane({tabs,setTabs,activeTabId,liveSpots,
             </span>
           )}
           {livePrice&&(
-            <span style={{fontSize:12,color:"#ccc"}}>${fmt(livePrice)}</span>
+            <span style={{fontSize:12,color:"#ccc"}}>
+              ${fmt(livePrice)}
+              {activeTab?.liveData&&spotIsAH(activeTab.liveData)&&(
+                <span style={{fontSize:9,marginLeft:6,
+                  color:spotAHPct(activeTab.liveData)>=0?"#00e5a0":"#ff4d6d"}}>
+                  AH {spotAHPct(activeTab.liveData)>=0?"+":""}{spotAHPct(activeTab.liveData).toFixed(2)}%
+                  <span style={{color:"#666",marginLeft:3}}>
+                    (close ${fmt(spotClose(activeTab.liveData))})
+                  </span>
+                </span>
+              )}
+            </span>
           )}
           {activeTab?.loading&&(
             <span style={{color:"var(--green)",fontSize:8,
@@ -2633,6 +2678,7 @@ export default function App() {
                 view={view} setView={setView}
                 serverStatus={serverStatus}
                 onOpenRight={openInRight}
+                setLiveSpots={setLiveSpots}
                 onActiveTicker={(tabId,ticker)=>{ setLeftActiveTabId(tabId); }}/>
             </div>
 

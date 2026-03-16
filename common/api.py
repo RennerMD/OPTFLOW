@@ -110,7 +110,10 @@ async def get_expiries(ticker: str):
 async def get_spot(ticker: str):
     try:
         spots = await fetch_spots_async([ticker.upper()])
-        return {"ticker": ticker.upper(), "price": spots[ticker.upper()]}
+        data  = spots[ticker.upper()]
+        if isinstance(data, dict):
+            return {"ticker": ticker.upper(), **data}
+        return {"ticker": ticker.upper(), "price": float(data)}
     except Exception as e:
         raise HTTPException(400, str(e))
 
@@ -123,8 +126,19 @@ async def get_portfolio(file: Optional[str] = Query(None)):
             return {"account_value": 0, "cost_basis": 0, "summary": {},
                     "positions": [], "alerts": [], "expirations": []}
 
-        tickers  = list({p["ticker"] for p in positions})
-        spot_map = await fetch_spots_async(tickers)
+        tickers     = list({p["ticker"] for p in positions})
+        raw_spots   = await fetch_spots_async(tickers)
+        # portfolio_summary expects plain floats; extract price from enriched dicts
+        spot_map    = {
+            t: float(v["price"]) if isinstance(v, dict) else float(v)
+            for t, v in raw_spots.items()
+        }
+        # Keep enriched data for AH info in response
+        spot_detail = {
+            t: v if isinstance(v, dict) else {"price": float(v), "close": 0,
+                                               "ah_change": 0, "ah_pct": 0, "is_ah": False}
+            for t, v in raw_spots.items()
+        }
 
         async def _iv(t):
             try:    return t, (await _run(fetch_chain, t)).get("atm_iv", 0.25)
@@ -136,6 +150,12 @@ async def get_portfolio(file: Optional[str] = Query(None)):
         rows = [_clean(r.to_dict()) for _, r in df.iterrows()]
         for r in rows:
             r["alerts"] = r.pop("signals", [])
+            # Add AH data per position
+            d = spot_detail.get(r.get("ticker"), {})
+            r["close"]     = d.get("close",     0)
+            r["ah_change"] = d.get("ah_change", 0)
+            r["ah_pct"]    = d.get("ah_pct",    0)
+            r["is_ah"]     = d.get("is_ah",     False)
 
         pnl   = round(float(df["pnl"].sum()), 2)
         mval  = round(float(df["current_value"].sum()), 2)
@@ -182,9 +202,17 @@ async def ws_stream(websocket: WebSocket, tickers: str = Query(...)):
     tlist = [t.strip().upper() for t in tickers.split(",")]
     try:
         while True:
-            spots = await fetch_spots_async(tlist)
-            spots["ts"] = pd.Timestamp.now().isoformat(timespec="seconds")
-            await websocket.send_json(spots)
+            raw   = await fetch_spots_async(tlist)
+            # Normalise: each value is either an enriched dict or a plain float
+            out = {}
+            for t, v in raw.items():
+                if isinstance(v, dict):
+                    out[t] = v
+                else:
+                    out[t] = {"price": float(v), "close": 0,
+                              "ah_change": 0, "ah_pct": 0, "is_ah": False}
+            out["ts"] = pd.Timestamp.now().isoformat(timespec="seconds")
+            await websocket.send_json(out)
             await asyncio.sleep(2)
     except WebSocketDisconnect:
         pass

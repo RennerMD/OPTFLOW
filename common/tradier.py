@@ -55,16 +55,45 @@ def get_quote(ticker: str) -> dict:
     q = data.get("quotes", {}).get("quote", {})
     return q[0] if isinstance(q, list) else q
 
+def get_quote_detail(ticker: str) -> dict:
+    """Return enriched quote dict with AH-aware price, close, and change."""
+    q      = get_quote(ticker)
+    last   = float(q.get("last")              or 0)
+    bid    = float(q.get("bid")               or 0)
+    ask    = float(q.get("ask")               or 0)
+    close  = float(q.get("close")             or 0)
+    prev   = float(q.get("prevclose")         or 0)
+    change = float(q.get("change")            or 0)
+    ch_pct = float(q.get("change_percentage") or 0)
+    mid    = round((bid + ask) / 2, 4) if bid > 0 and ask > 0 else 0
+
+    # During extended hours, bid/ask mid is more current than last trade.
+    # Prefer mid when it differs from last by more than 0.05% (noise threshold).
+    if mid > 0 and last > 0 and abs(mid - last) / last > 0.0005:
+        price = mid
+    else:
+        price = last or mid or prev or 0
+
+    # AH change = price vs regular session close
+    day_close  = close or prev
+    ah_change  = round(price - day_close, 4) if day_close else 0
+    ah_pct     = round((ah_change / day_close) * 100, 3) if day_close else 0
+    is_ah      = day_close > 0 and abs(price - day_close) > 0.01
+
+    return {
+        "price":     price,
+        "close":     day_close,
+        "change":    change,
+        "change_pct": ch_pct,
+        "ah_change": ah_change,
+        "ah_pct":    ah_pct,
+        "is_ah":     is_ah,
+        "bid":       bid,
+        "ask":       ask,
+    }
+
 def get_spot(ticker: str) -> float:
-    q = get_quote(ticker)
-    # Use last trade price; fall back to bid/ask mid for after-hours,
-    # then previous close as final fallback
-    last  = float(q.get("last")      or 0)
-    bid   = float(q.get("bid")       or 0)
-    ask   = float(q.get("ask")       or 0)
-    close = float(q.get("prevclose") or 0)
-    mid   = round((bid + ask) / 2, 4) if bid > 0 and ask > 0 else 0
-    return last or mid or close or 0
+    return get_quote_detail(ticker)["price"]
 
 def get_expirations(ticker: str) -> list:
     data = _get("/v1/markets/options/expirations",

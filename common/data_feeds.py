@@ -62,15 +62,36 @@ async def fetch_spots_async(tickers: list) -> dict:
             if isinstance(quotes, dict):
                 quotes = [quotes]
             def _best_price(q):
-                last  = float(q.get("last")      or 0)
-                bid   = float(q.get("bid")        or 0)
-                ask   = float(q.get("ask")        or 0)
-                close = float(q.get("prevclose")  or 0)
-                mid   = round((bid+ask)/2,4) if bid>0 and ask>0 else 0
-                return last or mid or close or 0
-            out = {q["symbol"]: _best_price(q) for q in quotes}
-            if all(out.get(t.upper(), 0) > 0 for t in tickers):
+                last   = float(q.get("last")              or 0)
+                bid    = float(q.get("bid")               or 0)
+                ask    = float(q.get("ask")               or 0)
+                close  = float(q.get("close")             or 0)
+                prev   = float(q.get("prevclose")         or 0)
+                mid    = round((bid+ask)/2,4) if bid>0 and ask>0 else 0
+                day_close = close or prev
+                # Prefer mid over last when they diverge (extended hours)
+                if mid>0 and last>0 and abs(mid-last)/last > 0.0005:
+                    price = mid
+                else:
+                    price = last or mid or day_close or 0
+                return price
+            def _enrich(q):
+                price  = _best_price(q)
+                close  = float(q.get("close") or q.get("prevclose") or 0)
+                ah_chg = round(price-close,4) if close else 0
+                ah_pct = round((ah_chg/close)*100,3) if close else 0
+                return {
+                    "price":     price,
+                    "close":     close,
+                    "ah_change": ah_chg,
+                    "ah_pct":    ah_pct,
+                    "is_ah":     close>0 and abs(price-close)>0.01,
+                }
+            out = {q["symbol"]: _enrich(q) for q in quotes}
+            # Validate all tickers have non-zero price
+            if all(out.get(t.upper(),{}).get("price",0)>0 for t in tickers):
                 return {t: out[t.upper()] for t in tickers}
+
     except Exception:
         pass
 
@@ -96,12 +117,16 @@ async def fetch_spots_async(tickers: list) -> dict:
                     t, price = item
                     out[t] = price
                 if len(out) == len(tickers):
-                    return out
+                    # Polygon returns raw price — wrap in enriched format
+                    return {t: {"price":p,"close":0,"ah_change":0,"ah_pct":0,"is_ah":False}
+                            for t,p in out.items()}
         except Exception:
             pass
 
     # 3. yfinance
-    return {t: _spot_yfinance(t) for t in tickers}
+    raw = {t: _spot_yfinance(t) for t in tickers}
+    return {t: {"price":p,"close":0,"ah_change":0,"ah_pct":0,"is_ah":False}
+            for t,p in raw.items()}
 
 
 # ── Options chain ──────────────────────────────────────────────────────────────
