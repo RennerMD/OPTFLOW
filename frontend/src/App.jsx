@@ -3001,6 +3001,12 @@ function Pane({tabs,setTabs,nextId,setNextId,liveSpots,setLiveSpots,portData,
                     <IVGauge rank={activeTab.chainData.iv_rank}/>
                     <span className="muted" style={{fontSize:10}}>
                       {fmt(activeTab.chainData.iv_rank,1)}
+                      {activeTab.chainData.iv_rank>=100&&(
+                        <span style={{fontSize:8,color:"#ff4d6d",marginLeft:3}}
+                          title="IV exceeds 52-week HV maximum — extreme reading">
+                          ▲MAX
+                        </span>
+                      )}
                     </span>
                     <span className="muted" style={{fontSize:9,color:"#555"}}>ATM IV</span>
                     <span style={{fontSize:10,color:"#4da8ff"}}>
@@ -3199,7 +3205,11 @@ function AnalysisPane({tabs, activeTabId, liveSpots,
             <span style={{fontSize:9,color:"#555",marginLeft:4,display:"flex",
               alignItems:"center",gap:4}}>
               <span>IV Rank&nbsp;<b style={{color:chainData.iv_rank<30?"#00e5a0":
-                chainData.iv_rank>70?"#ff4d6d":"#f5a623"}}>{fmt(chainData.iv_rank,1)}</b></span>
+                chainData.iv_rank>70?"#ff4d6d":"#f5a623"}}>{fmt(chainData.iv_rank,1)}</b>
+                {chainData.iv_rank>=100&&(
+                  <span style={{fontSize:8,color:"#ff4d6d",marginLeft:3}}
+                    title="IV exceeds 52-week HV max">▲MAX</span>
+                )}</span>
               <span style={{color:"#333"}}>·</span>
               <span>{chainData.dte}d</span>
               <span style={{color:"#333"}}>·</span>

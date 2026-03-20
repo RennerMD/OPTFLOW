@@ -140,11 +140,51 @@ async def get_portfolio(file: Optional[str] = Query(None)):
             for t, v in raw_spots.items()
         }
 
-        async def _iv(t):
-            try:    return t, (await _run(fetch_chain, t)).get("atm_iv", 0.25)
-            except: return t, 0.25
+        # Fetch full chain per ticker to get per-strike IV (more accurate than ATM IV)
+        async def _chain(t):
+            try:    return t, await _run(fetch_chain, t)
+            except: return t, None
 
-        iv_map = dict(await asyncio.gather(*[_iv(t) for t in tickers]))
+        chain_map = dict(await asyncio.gather(*[_chain(t) for t in tickers]))
+
+        # Build iv_map: for each position, look up its own strike+type IV from the chain
+        # Fall back to ATM IV, then to 0.25
+        def _chain_row(pos) -> dict:
+            """Find the matching chain row for this position (by strike+type)."""
+            chain_result = chain_map.get(pos["ticker"])
+            if chain_result is None:
+                return {}
+            chain_rows = chain_result.get("chain")
+            if chain_rows is None or (hasattr(chain_rows, "empty") and chain_rows.empty):
+                return {}
+            try:
+                import pandas as pd
+                df_c = chain_rows if hasattr(chain_rows,"iterrows") else pd.DataFrame(chain_rows)
+                mask = (
+                    (df_c["type"] == pos.get("type","call")) &
+                    (abs(df_c["strike"] - float(pos.get("strike",0))) < 0.01)
+                )
+                row = df_c[mask]
+                if not row.empty:
+                    return row.iloc[0].to_dict()
+            except Exception:
+                pass
+            return {}
+
+        # Inject per-position IV and actual market mid from chain
+        for pos in positions:
+            crow = _chain_row(pos)
+            if not pos.get("iv"):
+                iv_val = crow.get("iv") or chain_map.get(pos["ticker"], {}).get("atm_iv", 0.25) if isinstance(chain_map.get(pos["ticker"]), dict) else 0.25
+                if iv_val and float(iv_val) > 0.01:
+                    pos["iv"] = float(iv_val)
+            # Inject actual market mid so portfolio shows real bid/ask mid, not BS price
+            market_mid = crow.get("mid")
+            if market_mid and float(market_mid) > 0:
+                pos["market_mid"] = float(market_mid)
+
+        iv_map = {t: (chain_map[t].get("atm_iv", 0.25) if chain_map.get(t) else 0.25)
+                  for t in tickers}
         df     = portfolio_summary(positions, spot_map, iv_map)
 
         rows = [_clean(r.to_dict()) for _, r in df.iterrows()]

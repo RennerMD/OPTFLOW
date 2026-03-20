@@ -25,8 +25,8 @@ REQUIRED = {"ticker","type","strike","expiry","contracts","entry_price","entry_d
 
 
 def _clean(pos: dict) -> dict:
-    """Strip unknown fields and coerce types."""
-    return {
+    """Normalise position fields. Preserves iv if provided (decimal, e.g. 1.289)."""
+    base = {
         "ticker":      str(pos.get("ticker","")).upper(),
         "type":        str(pos.get("type","call")).lower(),
         "strike":      float(pos.get("strike") or 0),
@@ -36,6 +36,16 @@ def _clean(pos: dict) -> dict:
         "entry_date":  str(pos.get("entry_date","") or ""),
         "direction":   str(pos.get("direction","long")).lower(),
     }
+    # Preserve iv if stored (allows per-position accuracy over ATM IV proxy)
+    raw_iv = pos.get("iv")
+    if raw_iv is not None:
+        try:
+            fv = float(raw_iv)
+            # Normalise: values >5 are almost certainly percent form (e.g. 128.9)
+            base["iv"] = fv / 100.0 if fv > 5 else fv
+        except (ValueError, TypeError):
+            pass
+    return base
 
 
 def load_portfolio(path: Optional[str] = None) -> list:
@@ -60,12 +70,26 @@ def evaluate_position(pos: dict, spot: float, iv: float = 0.25, r: float = 0.053
     direction = 1 if pos["direction"] == "long" else -1
     n         = pos["contracts"]
 
-    current_price = bs_price(spot, pos["strike"], T, r, iv, pos["type"])
+    # Use the position's own IV if stored (more accurate than ATM IV for that ticker)
+    pos_iv = pos.get("iv")
+    if pos_iv and float(pos_iv) > 0.01:
+        iv = float(pos_iv)   # already decimal (e.g. 1.289 for 128.9%)
+
+    # For very short DTE, use a minimum T to avoid BS numerical instability
+    T_calc = max(T, 1/365/24)   # minimum ~1 hour to prevent theta blow-up
+
+    # Use actual market mid when available (injected from chain row by api.py)
+    # Fall back to BS theoretical price
+    market_mid = pos.get("market_mid")
+    if market_mid and float(market_mid) > 0:
+        current_price = float(market_mid)
+    else:
+        current_price = bs_price(spot, pos["strike"], T_calc, r, iv, pos["type"])
     entry_cost    = pos["entry_price"] * 100 * n
     current_value = current_price * 100 * n
     pnl           = (current_value - entry_cost) * direction
     pnl_pct       = pnl / (entry_cost or 1) * 100
-    g             = greeks(spot, pos["strike"], T, r, iv, pos["type"])
+    g             = greeks(spot, pos["strike"], T_calc, r, iv, pos["type"])
 
     signals = []
     if pos["direction"] == "short" and pnl_pct >= 50:
@@ -93,8 +117,8 @@ def evaluate_position(pos: dict, spot: float, iv: float = 0.25, r: float = 0.053
         "delta":         round(pos_delta, 4),
         "net_delta":     round(pos_delta * 100 * n, 4),
         "gamma":         round(g["gamma"], 6),
-        "theta":         round(g["theta"] * direction * 100 * n, 2),
-        "vega":          round(g["vega"]  * direction * 100 * n, 2),
+        "theta":         round(g["theta"] * direction, 4),   # per share/day (consistent with chain display)
+        "vega":          round(g["vega"]  * direction, 4),    # per share
         "target_price":  round(pos["entry_price"] * 1.5, 4) if direction == 1 else None,
         "stop_price":    round(pos["entry_price"] * 0.5, 4) if direction == 1 else None,
         "signals":       signals,

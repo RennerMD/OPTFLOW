@@ -63,17 +63,29 @@ def implied_vol(price, S, K, T, r, opt_type="call") -> Optional[float]:
 
 
 def iv_rank(ticker: str, current_iv: float, window: int = 252) -> Optional[float]:
+    """IV Rank: percentile of current ATM IV within its own 52-week range.
+    Since we lack historical IV data, we use the HV(20d) series as a proxy
+    for the IV range. This correctly ranks vol within its own history.
+    current_iv is compared against the [min_hv, max_hv] range of the past year.
+    """
     try:
         tk = yf.Ticker(ticker)
         hist = tk.history(period="1y")
-        if hist.empty or len(hist) < 20:
+        if hist.empty or len(hist) < 25:
             return None
-        log_ret = np.log(hist["Close"] / hist["Close"].shift(1)).dropna()
+        log_ret    = np.log(hist["Close"] / hist["Close"].shift(1)).dropna()
         rolling_hv = log_ret.rolling(20).std().dropna() * np.sqrt(252)
-        lo, hi = float(rolling_hv.min()), float(rolling_hv.max())
+        lo = float(rolling_hv.min())
+        hi = float(rolling_hv.max())
         if hi <= lo:
             return None
-        return round((current_iv - lo) / (hi - lo) * 100, 1)
+        # If current IV exceeds the historical HV max, it's extreme — return 100
+        if current_iv >= hi:
+            return 100.0
+        if current_iv <= lo:
+            return 0.0
+        rank = round((current_iv - lo) / (hi - lo) * 100, 1)
+        return rank
     except Exception:
         return None
 
